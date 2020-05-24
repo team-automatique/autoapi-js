@@ -1,8 +1,13 @@
 const functions = require('firebase-functions');
-// const beautify = require("js-beautify").js;
 const genExpress = require("./generateExpress");
 exports.generateExpress = functions.https.onRequest((request, response) => {
-    const funcs = request.body.functions;
-    response.send(genExpress(funcs));
+    const raw = request.body.file;
+    const functions = request.body.functions;
+    response.send(genExpress(raw, functions));
 });
-// console.log(genExpress([`function add2(initial){ return 2 + initial;}`]).index);
+// console.log(genExpress(`const assert = require('assert');
+// function square(x){
+//     return x*x;
+// }
+// function add2andSquare(initial){ return square(2 + initial);}
+// function sqrt(x){return Math.sqrt(x);}`, { add2andSquare: { api: true } }).index);

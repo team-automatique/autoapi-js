@@ -1,28 +1,27 @@
 const assert = require("assert");
 const esprima = require("esprima");
 
-function processSingleFunction(raw) {
-    const parsed = esprima.parseScript(raw, { comment: true, loc: true, range: true });
-    // console.log(parsed);
-    const allFunctions = parsed.body.filter(f => f.type === "FunctionDeclaration");
-    assert(allFunctions.length === 1);
-    const mainFunction = allFunctions[0];
+function processFunction(raw, func) {
     return {
-        imports: [],
-        name: mainFunction.id.name,
-        raw: raw.substring(mainFunction.range[0], mainFunction.range[1]),
-        args: mainFunction.params.map(m => m.name)
+        name: func.id.name,
+        raw: raw.substring(func.range[0], func.range[1]),
+        args: func.params.map(m => m.name),
+        async: func.async
     };
 }
 
-function processManyFunctions(strings) {
-    imports = new Set();
-    functions = strings.map(f => processSingleFunction(f));
-    functions.forEach(f => { imports.add(f.imports); delete f.imports; });
-    // console.log(functions);
-    return functions;
+function processAPIFile(raw, functions) {
+    console.log(raw);
+    const parsed = esprima.parseScript(raw, { comment: true, range: true });
+    const topLevelFound = parsed.body.filter(f => f.type === "FunctionDeclaration").map(m => processFunction(raw, m));
+    const topLevelExposed = topLevelFound.filter(f => functions[f.name] && functions[f.name].api);
+    const topLevelNames = topLevelExposed.map(m => m.name);
+    console.log(topLevelExposed);
+    const remaining = parsed.body.filter(f => f.type !== "FunctionDeclaration" || !(topLevelNames.includes(f.id.name)));
+    const initializer = remaining.map(m => raw.substring(m.range[0], m.range[1])).join('\n');
+    return { initializer, functions: topLevelExposed };
 }
 
 module.exports = {
-    processManyFunctions
+    processAPIFile
 }

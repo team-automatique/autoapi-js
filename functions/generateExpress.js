@@ -1,4 +1,6 @@
-const { processManyFunctions } = require("./processFunctions");
+const beautify = require("js-beautify").js;
+
+const { processAPIFile } = require("./processFunctions");
 function generateRoute(func) {
     let full = func.raw + '\n';
     if (func.args.length > 0) {
@@ -33,17 +35,20 @@ function generatePackageJson() {
     }
 }
 
-module.exports = function generateExpress(rawFunctions) {
+module.exports = function generateExpress(raw, functions) {
     let response = "const express = require('express');\nconst app = express();\n"
     const packages = ['express'];
-    const functions = processManyFunctions(rawFunctions);
-    const allGet = functions.every(f => f.args.length === 0);
+    const processed = processAPIFile(raw, functions);
+    const allGet = processed.functions.every(f => f.args.length === 0);
     if (!allGet) {
         response += "const bodyParser = require('body-parser');\n app.use(bodyParser.json());\n";
         packages.push('body-parser');
     }
+    response += "\n/*User-Declared `require` statements, non-public functions, globally scoped variables*/\n" + processed.initializer + "\n\n";
     return {
-        index: response + functions.map(m => generateRoute(m)).join('\n') + "\napp.listen(3000, () => console.log('example app listening at http://localhost:3000'))",
-        package: JSON.stringify(generatePackageJson(packages))
+        index: beautify(response + "/*Public routes based on the open APIs are declared below*/\n" +
+            processed.functions.map(m => generateRoute(m)).join('\n\n') +
+            "\n\napp.listen(3000, () => console.log('example app listening at http://localhost:3000'))"),
+        package: JSON.stringify(generatePackageJson(packages), null, 2)
     }
 }
