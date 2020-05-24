@@ -11,7 +11,7 @@ function processSingleFunction(raw) {
         imports: [],
         name: mainFunction.id.name,
         raw: raw.substring(mainFunction.range[0], mainFunction.range[1]),
-        args: mainFunction.params
+        args: mainFunction.params.map(m => m.name)
     };
 }
 
