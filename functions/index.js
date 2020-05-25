@@ -3,8 +3,12 @@ const genExpress = require("./generateExpress");
 exports.generateExpress = functions.https.onRequest((request, response) => {
     const raw = request.body.file;
     const functions = request.body.functions;
-    response.send(genExpress(raw, functions));
+    const packages = request.body.packages;
+    const resp = genExpress(raw, functions, packages);
+    console.log(resp.index);
+    response.send(resp);
 });
+
 // console.log(genExpress(`const assert = require('assert');
 // function square(x){
 //     return x*x;
