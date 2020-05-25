@@ -29,7 +29,8 @@
         "functions": "never"
       }
     ],
-    "indent": ["error", 2],
-    "max-len": "warn"
+    "indent": ["error", 2, { "SwitchCase": 1 }],
+    "max-len": "warn",
+    "quote-props": ["error", "as-needed"]
   }
 }
