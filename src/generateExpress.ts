@@ -28,28 +28,28 @@ import processJScript from "./processJScript";
 // }
 
 interface packages {
-    [propName: string]: string;
-};
+  [propName: string]: string;
+}
 
 interface functions {
-    [funName: string]: {
-        api: boolean
-    }
+  [funName: string]: {
+    api: boolean;
+  };
 }
 
 function generatePackageJson(packages: packages) {
-    return {
-        name: "generator-js",
-        version: "1.0.0",
-        description: "",
-        main: "index.js",
-        scripts: {
-            "test": "echo \"Error: no test specified\" && exit 1"
-        },
-        author: "",
-        license: "ISC",
-        dependencies: packages
-    }
+  return {
+    name: "generator-js",
+    version: "1.0.0",
+    description: "",
+    main: "index.js",
+    scripts: {
+      test: 'echo "Error: no test specified" && exit 1',
+    },
+    author: "",
+    license: "ISC",
+    dependencies: packages,
+  };
 }
 
 // module.exports = function generateExpress(raw, functions, packages) {
@@ -72,8 +72,14 @@ function generatePackageJson(packages: packages) {
 //     }
 // }
 
-export default function generateExpress(raw: string, functions: functions, packages: packages) {
-    const packagedotJSON = JSON.stringify(generatePackageJson({ ...packages, express: "^4" }));
-    const unpacked = processJScript(raw, {});
-    return { index: "", package: packagedotJSON };
+export default function generateExpress(
+  raw: string,
+  functions: functions,
+  packages: packages
+) {
+  const packagedotJSON = JSON.stringify(
+    generatePackageJson({ ...packages, express: "^4" })
+  );
+  const unpacked = processJScript(raw, {});
+  return { index: "", package: packagedotJSON };
 }
