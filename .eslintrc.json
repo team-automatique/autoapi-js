@@ -1,0 +1,36 @@
+{
+  "env": {
+    "es6": true,
+    "node": true
+  },
+  "extends": ["google"],
+  "globals": {
+    "Atomics": "readonly",
+    "SharedArrayBuffer": "readonly"
+  },
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 11,
+    "sourceType": "module"
+  },
+  "plugins": ["@typescript-eslint"],
+  "rules": {
+    "quotes": ["error", "double", { "avoidEscape": true }],
+    "object-curly-spacing": ["error", "always"],
+    "require-jsdoc": "off",
+    "no-unused-vars": "off",
+    "comma-dangle": [
+      "error",
+      {
+        "arrays": "always-multiline",
+        "objects": "always-multiline",
+        "imports": "always-multiline",
+        "exports": "always-multiline",
+        "functions": "never"
+      }
+    ],
+    "indent": ["error", 2, { "SwitchCase": 1 }],
+    "max-len": "warn",
+    "quote-props": ["error", "as-needed"]
+  }
+}
