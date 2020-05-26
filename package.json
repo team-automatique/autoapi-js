@@ -23,7 +23,7 @@
   },
   "scripts": {
     "prepare": "tsc",
-    "pretest": "eslint .",
+    "pretest": "eslint index.ts src/**/*.ts tests/**/*.ts",
     "test": "mocha --require ts-node/register tests/**/*.ts"
   },
   "repository": {

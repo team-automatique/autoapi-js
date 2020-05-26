@@ -1,8 +1,8 @@
 import assert from "assert";
 import "mocha";
 import { parseScript } from "esprima";
+import { generateExpress } from "../index";
 import processJScript from "../src/processJScript";
-import generateExpress from "../src/generateExpress";
 
 describe("processJScript", () => {
   describe("trivial function", () => {
