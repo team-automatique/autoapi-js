@@ -9,7 +9,7 @@ import { functions, packages, getHeader } from "./shared";
  * @param {string} raw the raw program to be converted into an API
  * @return {ts.Program} an in-memory, type-checked TypeScript program
  */
-function buildProgram(raw: string): ts.Program {
+export function buildProgram(raw: string): ts.Program {
   const options = ts.getDefaultCompilerOptions();
   const realHost = ts.createCompilerHost(options, true);
 
@@ -175,8 +175,23 @@ function convertFuncToRoute(
     const requestParams = func.parameters
       .map((f) => `body.${f.name.getText()}`)
       .join(", ");
+    const typeAssertions = func.parameters
+      .filter((f) => !f.questionToken && !f.initializer)
+      .map(
+        (f) =>
+          `if(!body.${f.name.getText()})
+          {
+            res.status(400)
+                .send(
+                  { error: "Missing required parameter ${f.name.getText()}"}
+                  );
+            return;
+          }`
+      );
     return `app.post('/${func.name?.getText()}', (req, res) => {
       const body = req.body;
+      // Assert that required incoming arguments are all present
+      ${typeAssertions.join("\n")}
       const response = ${func.name?.getText()}(${requestParams});
       res.send(JSON.stringify(response));
     });`;
