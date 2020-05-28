@@ -16,4 +16,5 @@
  */
 
 import generateExpress from "./src/generateExpress";
-export { generateExpress };
+import buildTSExpress from "./src/processTScript";
+export { generateExpress, buildTSExpress };

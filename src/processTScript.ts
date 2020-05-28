@@ -158,37 +158,46 @@ function generateTsconfig() {
   );
 }
 
+function generateJSDoc(path: string, method: "post" | "get"): string {
+  return `/**
+ * @api {${method}} ${path}
+ */\n`;
+}
+
 function convertFuncToRoute(
   func: ts.FunctionDeclaration,
   checker: ts.TypeChecker
 ): string {
   let rt = checker.typeToString(checker.getTypeAtLocation(func));
   rt = rt.substr(rt.indexOf("=>") + 3);
+  let response = "";
+  let method: "post" | "get" = "post";
   if (func.parameters.length === 0) {
-    console.log(rt);
-    // Perform a "GET" request
-    return `app.get('/${func.name}', (req, res) => {
+    // Perform a GET request
+    method = "get";
+    response = `app.get('/${func.name}', (req, res) => {
       const response = ${func.name}();
       res.send(JSON.stringify(response));
       })`;
   } else {
+    method = "post";
     const requestParams = func.parameters
       .map((f) => `body.${f.name.getText()}`)
       .join(", ");
     const typeAssertions = func.parameters
       .filter((f) => !f.questionToken && !f.initializer)
-      .map(
-        (f) =>
-          `if(!body.${f.name.getText()})
+      .map((f) => {
+        const paramType = checker.typeToString(checker.getTypeAtLocation(f));
+        return `if(!body.${f.name.getText()})
           {
             res.status(400)
                 .send(
                   { error: "Missing required parameter ${f.name.getText()}"}
                   );
             return;
-          }`
-      );
-    return `app.post('/${func.name?.getText()}', (req, res) => {
+          }`;
+      });
+    response = `app.post('/${func.name?.getText()}', (req, res) => {
       const body = req.body;
       // Assert that required incoming arguments are all present
       ${typeAssertions.join("\n")}
@@ -196,6 +205,8 @@ function convertFuncToRoute(
       res.send(JSON.stringify(response));
     });`;
   }
+  // Generate API documentation
+  return generateJSDoc(func.name!!.getText(), method) + response;
 }
 
 export default function buildTSExpress(
@@ -230,10 +241,12 @@ export default function buildTSExpress(
       app.use(bodyParser.json());\n`;
   }
   // Sort all exported functions to allow for correct insertion of functions
-  processed.sort((e1, e2) => e2.pos - e1.pos);
+  processed.sort((e1, e2) => e1.pos - e2.pos);
   let prevPos = 0;
   processed.forEach((func) => {
     response += "\n" + raw.substring(prevPos, func.end) + "\n";
+    const c = (<any>func).jsDoc;
+    const taget = ts.getJSDocTags(func);
     const newRoute = convertFuncToRoute(func, typeChecker);
     prevPos = func.end;
     response += newRoute;
