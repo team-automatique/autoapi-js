@@ -158,9 +158,23 @@ function generateTsconfig() {
   );
 }
 
-function generateJSDoc(path: string, method: "post" | "get"): string {
+function generateJSDoc(
+  path: string,
+  method: "post" | "get",
+  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  checker: ts.TypeChecker
+): string {
+  const params = parameters.map(
+    (f) =>
+      ` * @apiParam {${checker.typeToString(
+        checker.getTypeAtLocation(f)
+      )}} ${f.name.getText()}`
+  );
   return `/**
  * @api {${method}} ${path}
+ *
+${params.join("\n")}
+ * 
  */\n`;
 }
 
@@ -175,8 +189,8 @@ function convertFuncToRoute(
   if (func.parameters.length === 0) {
     // Perform a GET request
     method = "get";
-    response = `app.get('/${func.name}', (req, res) => {
-      const response = ${func.name}();
+    response = `app.get('/${func.name!!.getText()}', (req, res) => {
+      const response = ${func.name!!.getText()}();
       res.send(JSON.stringify(response));
       })`;
   } else {
@@ -197,7 +211,7 @@ function convertFuncToRoute(
             return;
           }`;
       });
-    response = `app.post('/${func.name?.getText()}', (req, res) => {
+    response = `app.post('/${func.name!!.getText()}', (req, res) => {
       const body = req.body;
       // Assert that required incoming arguments are all present
       ${typeAssertions.join("\n")}
@@ -206,7 +220,14 @@ function convertFuncToRoute(
     });`;
   }
   // Generate API documentation
-  return generateJSDoc(func.name!!.getText(), method) + response;
+  return (
+    generateJSDoc(
+      "/" + func.name!!.getText(),
+      method,
+      func.parameters,
+      checker
+    ) + response
+  );
 }
 
 export default function buildTSExpress(
