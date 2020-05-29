@@ -67,7 +67,7 @@ function functionToRoute(func: decompFunction) {
   }
 }
 
-export default function generateExpress(
+export default function buildJSExpress(
   raw: string,
   functions: functions,
   packages: packages

@@ -8,6 +8,7 @@
     "@types/esprima": "^4.0.2",
     "@types/js-beautify": "^1.11.0",
     "@types/node": "^14.0.5",
+    "del": "^5.1.0",
     "esprima": "^4.0.1",
     "js-beautify": "^1.11.0"
   },

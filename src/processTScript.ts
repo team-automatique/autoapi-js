@@ -1,63 +1,29 @@
 import ts from "typescript";
 import { js as beautify } from "js-beautify";
 import assert from "assert";
-
+import del from "del";
 import { functions, packages, getHeader } from "./shared";
+import fs from "fs";
+import path from "path";
 
 /** buildProgram
  *
- * @param {string} raw the raw program to be converted into an API
+ * @param {string} root the root directory to an existing workspace
  * @return {ts.Program} an in-memory, type-checked TypeScript program
  */
-export function buildProgram(raw: string): ts.Program {
+export function buildProgram(
+  root: string
+): { program: ts.Program; root: string } {
+  if (!fs.existsSync(root)) {
+    throw new Error(`Unable to find provided directory ${root}`);
+  }
+  if (!fs.existsSync(path.join(root, "index.ts"))) {
+    throw new Error("No index.ts found in provided directory");
+  }
   const options = ts.getDefaultCompilerOptions();
-  const realHost = ts.createCompilerHost(options, true);
-
-  const sourcePath = "/index.ts";
-  const sourceFile = ts.createSourceFile(
-    sourcePath,
-    raw,
-    ts.ScriptTarget.Latest
-  );
-
-  const host: ts.CompilerHost = {
-    fileExists: (filePath) =>
-      filePath === sourcePath || realHost.fileExists(filePath),
-    directoryExists:
-      realHost.directoryExists && realHost.directoryExists.bind(realHost),
-    getCurrentDirectory: realHost.getCurrentDirectory.bind(realHost),
-    getDirectories: realHost.getDirectories!!.bind(realHost),
-    getCanonicalFileName: (fileName) => realHost.getCanonicalFileName(fileName),
-    getNewLine: realHost.getNewLine.bind(realHost),
-    getDefaultLibFileName: realHost.getDefaultLibFileName.bind(realHost),
-    getSourceFile: (
-      fileName,
-      languageVersion,
-      onError,
-      shouldCreateNewSourceFile
-    ) => {
-      if (fileName === sourcePath) {
-        return sourceFile;
-      } else {
-        return realHost.getSourceFile(
-          fileName,
-          languageVersion,
-          onError,
-          shouldCreateNewSourceFile
-        );
-      }
-    },
-    readFile: (filePath) =>
-      filePath === sourcePath ? raw : realHost.readFile(filePath),
-    useCaseSensitiveFileNames: () => realHost.useCaseSensitiveFileNames(),
-    writeFile: () => {},
-  };
-
-  const rootNames = ["es2015"].map((lib) =>
-    require.resolve(`typescript/lib/lib.${lib}.d.ts`)
-  );
+  const host = ts.createCompilerHost(options, true);
   const program = ts.createProgram(
-    rootNames.concat([sourcePath]),
+    [path.join(root, "index.ts")],
     options,
     host
   );
@@ -69,7 +35,34 @@ export function buildProgram(raw: string): ts.Program {
         diagnostics.map((m) => m.messageText).join("\n")
     );
   }
-  return program;
+  return { program, root };
+}
+
+export function buildProgramInMemory(
+  raw: string,
+  packages: packages
+): { program: ts.Program; root: string } {
+  // TODO:
+  const options = ts.getDefaultCompilerOptions();
+  const host = ts.createCompilerHost(options, true);
+  const tempDir = fs.mkdtempSync("builder");
+  fs.writeFileSync(path.join(tempDir, "index.ts"), raw);
+  const program = ts.createProgram(
+    [path.join(tempDir, "index.ts")],
+    options,
+    host
+  );
+  // Remove temp Directory from the filesystem
+  del.sync(tempDir);
+  // Check to ensure that valid TypeScript is passed into the program
+  const diagnostics = ts.getPreEmitDiagnostics(program);
+  if (diagnostics.length !== 0) {
+    throw new Error(
+      "Failed to compile typescript module: " +
+        diagnostics.map((m) => m.messageText).join("\n")
+    );
+  }
+  return { program, root: tempDir };
 }
 
 /**
@@ -81,13 +74,15 @@ export function buildProgram(raw: string): ts.Program {
  *
  * @throws if functions requested in functions are missing from the raw script
  *
- * @param {ts.Program} program
+ * @param {ts.SourceFile} sourceFile
  * @param {functions} functions
  * @return {ts.FunctionDeclaration[]}
  */
-function extractPublicFunctions(program: ts.Program, functions: functions) {
+function extractPublicFunctions(
+  sourceFile: ts.SourceFile,
+  functions: functions
+) {
   const parsedFunctions: string[] = [];
-  const sourceFile = program.getSourceFile("/index.ts");
   assert(sourceFile);
   sourceFile.forEachChild((c) => {
     if (ts.isFunctionDeclaration(c)) {
@@ -231,13 +226,17 @@ function convertFuncToRoute(
 }
 
 export default function buildTSExpress(
-  raw: string,
+  input: { memory: true; raw: string } | { memory: false; root: string },
   functions: functions,
   packages: packages
 ) {
-  const program = buildProgram(raw);
+  const { program, root } = input.memory
+    ? buildProgramInMemory(input.raw, packages)
+    : buildProgram(input.root);
+  const sourceFile = program.getSourceFile(path.join(root, "index.ts"));
+  assert(sourceFile);
   const typeChecker = program.getTypeChecker();
-  const processed = extractPublicFunctions(program, functions);
+  const processed = extractPublicFunctions(sourceFile, functions);
   // Check if all items can be represented as a GET request (ie no args)
   const allGet = processed.every((p) => p.parameters.length === 0);
   if (!allGet) {
@@ -263,16 +262,17 @@ export default function buildTSExpress(
   }
   // Sort all exported functions to allow for correct insertion of functions
   processed.sort((e1, e2) => e1.pos - e2.pos);
+  const source = sourceFile.getText();
   let prevPos = 0;
   processed.forEach((func) => {
-    response += "\n" + raw.substring(prevPos, func.end) + "\n";
+    response += "\n" + source.substring(prevPos, func.end) + "\n";
     const c = (<any>func).jsDoc;
     const taget = ts.getJSDocTags(func);
     const newRoute = convertFuncToRoute(func, typeChecker);
     prevPos = func.end;
     response += newRoute;
   });
-  response += raw.substring(prevPos);
+  response += source.substring(prevPos);
   // Add action to listen on local host
   response +=
     "app.listen(3000, () => console.log('API listening at http://localhost:3000'));";

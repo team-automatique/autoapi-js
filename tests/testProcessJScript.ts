@@ -1,7 +1,7 @@
 import assert from "assert";
 import "mocha";
 import { parseScript } from "esprima";
-import { generateExpress } from "../index";
+import { buildJSExpress } from "../index";
 import processJScript from "../src/processJScript";
 
 describe("processJScript", () => {
@@ -70,7 +70,7 @@ describe("processJScript", () => {
 describe("Build Express", () => {
   describe("Empty program", () => {
     const program = "";
-    const response = generateExpress(program, {}, {});
+    const response = buildJSExpress(program, {}, {});
     it("should produce valid package.json", () => JSON.parse(response.package));
     it("should have express in package dependencies", () => {
       assert.equal(JSON.parse(response.package).dependencies.express, "^4");
