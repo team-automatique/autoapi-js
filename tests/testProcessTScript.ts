@@ -21,15 +21,17 @@ describe("process TypeScript", () => {
     it("should throw an exception when looking for function bar", () =>
       assert.throws(() =>
         buildTSExpress(
-          { memory: true, raw: program },
-          { bar: { api: true } },
-          {}
+          { memory: true, raw: program, packages: {} },
+          { bar: { api: true } }
         )
       ));
   });
   describe("build 0 function express server", () => {
     const program = "console.log('hello world');";
-    const result = buildTSExpress({ memory: true, raw: program }, {}, {});
+    const result = buildTSExpress(
+      { memory: true, raw: program, packages: {} },
+      {}
+    );
     it("should produce parsable package.json", () => {
       JSON.parse(result.packageJSON);
     });
@@ -49,9 +51,8 @@ describe("process TypeScript", () => {
   describe("build a single function with arg", () => {
     const program = "function odd(x:number){return x % 2 === 1;}";
     const result = buildTSExpress(
-      { memory: true, raw: program },
-      { odd: { api: true } },
-      {}
+      { memory: true, raw: program, packages: {} },
+      { odd: { api: true } }
     );
     it("should have an api post request", () =>
       assert.include(result.index, "app.post('/odd', (req, res) => "));

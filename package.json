@@ -1,6 +1,6 @@
 {
   "name": "@automatique/generator-js",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A tool to automatically generate Javascript/Typescript API servers based on functions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,7 +10,8 @@
     "@types/node": "^14.0.5",
     "del": "^5.1.0",
     "esprima": "^4.0.1",
-    "js-beautify": "^1.11.0"
+    "js-beautify": "^1.11.0",
+    "typescript": "^3.9.3"
   },
   "devDependencies": {
     "@types/chai": "^4.2.11",
@@ -20,9 +21,9 @@
     "chai": "^4.2.0",
     "eslint": "^7.1.0",
     "eslint-config-google": "^0.14.0",
+    "eslint-config-prettier": "^6.11.0",
     "mocha": "^7.2.0",
-    "ts-node": "^8.10.1",
-    "typescript": "^3.9.3"
+    "ts-node": "^8.10.1"
   },
   "scripts": {
     "prepare": "tsc",
@@ -38,5 +39,8 @@
   "bugs": {
     "url": "https://github.com/team-automatique/generator-js/issues"
   },
-  "homepage": "https://github.com/team-automatique/generator-js#readme"
+  "homepage": "https://github.com/team-automatique/generator-js#readme",
+  "files": [
+    "dist/"
+  ]
 }

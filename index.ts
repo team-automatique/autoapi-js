@@ -16,5 +16,7 @@
  */
 
 import buildJSExpress from "./src/generateExpress";
-import buildTSExpress from "./src/processTScript";
-export { buildTSExpress, buildJSExpress };
+import buildTSExpress, {
+  getAllTopLevelFunctions as getTSTopLevelFunctions,
+} from "./src/processTScript";
+export { buildTSExpress, buildJSExpress, getTSTopLevelFunctions };

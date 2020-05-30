@@ -9,24 +9,22 @@ import path from "path";
 /** buildProgram
  *
  * @param {string} root the root directory to an existing workspace
+ * @param {string} file the file which to parse
  * @return {ts.Program} an in-memory, type-checked TypeScript program
  */
 export function buildProgram(
-  root: string
+  root: string,
+  file: string
 ): { program: ts.Program; root: string } {
   if (!fs.existsSync(root)) {
     throw new Error(`Unable to find provided directory ${root}`);
   }
-  if (!fs.existsSync(path.join(root, "index.ts"))) {
-    throw new Error("No index.ts found in provided directory");
+  if (!fs.existsSync(path.join(root, file))) {
+    throw new Error(`No such file ${file} found in provided directory`);
   }
   const options = ts.getDefaultCompilerOptions();
   const host = ts.createCompilerHost(options, true);
-  const program = ts.createProgram(
-    [path.join(root, "index.ts")],
-    options,
-    host
-  );
+  const program = ts.createProgram([path.join(root, file)], options, host);
   // Check to ensure that valid TypeScript is passed into the program
   const diagnostics = ts.getPreEmitDiagnostics(program);
   if (diagnostics.length !== 0) {
@@ -42,7 +40,7 @@ export function buildProgramInMemory(
   raw: string,
   packages: packages
 ): { program: ts.Program; root: string } {
-  // TODO:
+  // TODO: Package installation
   const options = ts.getDefaultCompilerOptions();
   const host = ts.createCompilerHost(options, true);
   const tempDir = fs.mkdtempSync("builder");
@@ -65,6 +63,16 @@ export function buildProgramInMemory(
   return { program, root: tempDir };
 }
 
+function getTopLevelFunctions(sourceFile: ts.SourceFile): string[] {
+  const foundFunctions: string[] = [];
+  sourceFile.forEachChild((c) => {
+    if (ts.isFunctionDeclaration(c)) {
+      foundFunctions.push(c.name!!.getText());
+    }
+  });
+  return foundFunctions;
+}
+
 /**
  * extractPublicFunctions
  *
@@ -81,16 +89,10 @@ export function buildProgramInMemory(
 function extractPublicFunctions(
   sourceFile: ts.SourceFile,
   functions: functions
-) {
-  const parsedFunctions: string[] = [];
-  assert(sourceFile);
-  sourceFile.forEachChild((c) => {
-    if (ts.isFunctionDeclaration(c)) {
-      parsedFunctions.push(c.name!!.text);
-    }
-  });
+): ts.FunctionDeclaration[] {
+  const foundFunctions = getTopLevelFunctions(sourceFile);
   const missingFunctions = Object.keys(functions).filter(
-    (k) => !parsedFunctions.includes(k)
+    (k) => !foundFunctions.includes(k)
   );
   if (missingFunctions.length !== 0) {
     throw new Error(
@@ -107,50 +109,38 @@ Missing (${missingFunctions.join(",")})`
   return functionsToBeAPId;
 }
 
-function generatePackageJSON(packages: packages, devPackages: packages) {
-  return JSON.stringify(
-    {
-      name: "generator-js",
-      version: "1.0.0",
-      description: "",
-      main: "dist/index.js",
-      scripts: {
-        prepare: "tsc",
-        test: 'echo "Error: no test specified" && exit 1',
-      },
-      author: "",
-      license: "ISC",
-      dependencies: packages,
-      devDependencies: devPackages,
-    },
-    null,
-    2
-  );
+interface packageJSON {
+  name: string;
+  version: string;
+  description: string;
+  main: "dist/index.js";
+  scripts: {
+    prepare: "tsc";
+    test: 'echo "Error: no test specified" && exit 1';
+  };
+  author: string;
+  license: string;
+  dependencies: { [propName: string]: string };
+  devDependencies: { [propName: string]: string };
 }
 
 function generateTsconfig() {
-  return JSON.stringify(
-    {
-      compilerOptions: {
-        lib: [
-          "ES2016",
-          "DOM",
-        ] /* Specify library files to be included in the compilation. */,
-        declaration: true /* Generates corresponding '.d.ts' file. */,
-        sourceMap: true /* Generates corresponding '.map' file. */,
-        outDir: "./dist" /* Redirect output structure to the directory. */,
-        strict: true /* Enable all strict type-checking options. */,
-        moduleResolution: "node",
-        esModuleInterop: true,
-        skipLibCheck: true,
-        forceConsistentCasingInFileNames: true,
-      },
-      // include: ["./src/**/*", "./index.ts"],
-      // exclude: ["./tests/**/*"],
+  return {
+    compilerOptions: {
+      lib: [
+        "ES2016",
+        "DOM",
+      ] /* Specify library files to be included in the compilation. */,
+      declaration: true /* Generates corresponding '.d.ts' file. */,
+      sourceMap: true /* Generates corresponding '.map' file. */,
+      outDir: "./dist" /* Redirect output structure to the directory. */,
+      strict: true /* Enable all strict type-checking options. */,
+      moduleResolution: "node",
+      esModuleInterop: true,
+      skipLibCheck: true,
+      forceConsistentCasingInFileNames: true,
     },
-    null,
-    2
-  );
+  };
 }
 
 function generateJSDoc(
@@ -172,7 +162,15 @@ ${params.join("\n")}
  * 
  */\n`;
 }
-
+/** convertFuncToRoute - Turn a ts.FunctionDeclaration into a string snippet
+ * The resulting string from this function is an API route (for an express
+ * server) which calls the function in question. It also performs some checking
+ * to prevent missing arguments
+ *
+ * @param {ts.FunctionDeclaration} func
+ * @param {ts.TypeChecker} checker
+ * @return {string} function as an API route for an express server
+ */
 function convertFuncToRoute(
   func: ts.FunctionDeclaration,
   checker: ts.TypeChecker
@@ -225,32 +223,80 @@ function convertFuncToRoute(
   );
 }
 
-export default function buildTSExpress(
-  input: { memory: true; raw: string } | { memory: false; root: string },
-  functions: functions,
+function buildTSProgramVirtual(
+  raw: string,
   packages: packages
+): {
+  program: ts.Program;
+  packageJSON: packageJSON;
+  root: string;
+  file: string;
+} {
+  const packageJSON: packageJSON = {
+    name: "",
+    version: "1.0.0",
+    description: "",
+    main: "dist/index.js",
+    scripts: {
+      prepare: "tsc",
+      test: 'echo "Error: no test specified" && exit 1',
+    },
+    author: "",
+    license: "ISC",
+    dependencies: packages,
+    devDependencies: {},
+  };
+  const { program, root } = buildProgramInMemory(raw, packages);
+  return { program, packageJSON, root, file: "index.ts" };
+}
+
+function buildTSProgram(
+  root: string,
+  file: string
+): {
+  program: ts.Program;
+  packageJSON: packageJSON;
+  root: string;
+  file: string;
+} {
+  if (!fs.existsSync(path.join(root, "package.json"))) {
+    throw new Error("Unable to find a package.json in the root directory");
+  }
+  const packageJSON = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json")).toString()
+  );
+  const { program } = buildProgram(root, file);
+  return { program, packageJSON, root, file };
+}
+
+export default function buildTSExpress(
+  input:
+    | { memory: true; raw: string; packages: packages }
+    | { memory: false; file: string; root: string },
+  functions: functions
 ) {
-  const { program, root } = input.memory
-    ? buildProgramInMemory(input.raw, packages)
-    : buildProgram(input.root);
-  const sourceFile = program.getSourceFile(path.join(root, "index.ts"));
+  const { program, packageJSON, root, file } = input.memory
+    ? buildTSProgramVirtual(input.raw, input.packages)
+    : buildTSProgram(input.root, input.file);
+  const sourceFile = program.getSourceFile(path.join(root, file));
   assert(sourceFile);
   const typeChecker = program.getTypeChecker();
   const processed = extractPublicFunctions(sourceFile, functions);
   // Check if all items can be represented as a GET request (ie no args)
   const allGet = processed.every((p) => p.parameters.length === 0);
   if (!allGet) {
-    packages["body-parser"] = "latest";
+    packageJSON.dependencies["body-parser"] = "latest";
   }
-  const packageJSON = generatePackageJSON(
-    {
-      ...packages,
-      express: "~4",
-      "@types/express": "~4",
-      "is-promise": "^4",
-    },
-    { typescript: "latest" }
-  );
+  packageJSON.dependencies = {
+    express: "~4",
+    "@types/express": "~4",
+    "is-promise": "^4",
+    ...packageJSON.dependencies,
+  };
+  packageJSON.devDependencies = {
+    typescript: "latest",
+    ...packageJSON.devDependencies,
+  };
   let response = getHeader();
   response += "// Setup server to send API routes\n";
   response += 'import express from "express";\n';
@@ -278,7 +324,23 @@ export default function buildTSExpress(
     "app.listen(3000, () => console.log('API listening at http://localhost:3000'));";
   return {
     index: beautify(response),
-    packageJSON,
-    tsConfig: generateTsconfig(),
+    packageJSON: JSON.stringify(packageJSON, null, 2),
+    tsConfig: JSON.stringify(generateTsconfig(), null, 2),
   };
+}
+
+/** getAllTopLevelFunctions
+ *
+ * @param {string} file path to a TypeScript file on disk, to parse and return
+ *  all top level functions
+ * @return {string[]} all top level function declarations
+ */
+export function getAllTopLevelFunctions(file: string): string[] {
+  const { program } = buildProgram(
+    path.basename(path.dirname(file)),
+    path.basename(file)
+  );
+  const sourceFile = program.getSourceFile(file);
+  assert(sourceFile);
+  return getTopLevelFunctions(sourceFile);
 }
