@@ -9,26 +9,29 @@ This package can be added to an existing Node project via the command
 
 ### Usage
 
-Generator-JS currently exports two functions, `buildJSExpress` and `buildTSExpress`.
+Generator-JS currently exports two major functions, `buildJSExpress` and `buildTSExpress`.
+Additionally, the function `getTSTopLevelFunctions` will return a list of all top-level functions
+in a TypeScript file.
 
 Example Usage:
 
 ```javascript
-// Build a program in memory, with the function "foo" exported, and no package dependencies
+// Build a program, with the function "foo" exported
 buildTSExpress(
   // Program
-  {
-    memory: true,
-    raw: "function foo(){return 'bar';}",
-  },
+  "/some/path/to/a/typescript/project",
+  // Main file
+  "index.ts",
   // Functions to be exported
   {
     foo: { api: true },
-  },
-  // Packages required
-  {}
+  }
 );
 ```
 
 The above returns an object with three attributes, "index", the text of an index.ts script,
 "packageJSON", a package.json file, and "tsConfig", a valid typescript config.
+
+Note there are some changes in the source file that must be made to correctly work
+
+1. URL Paths are case-insensitive, unlike JavaScript/TypeScript identifiers. If you attempt to export 2 functions with the same name, differing by casing (eg foo() and FOO()), undefined behaviour will occur

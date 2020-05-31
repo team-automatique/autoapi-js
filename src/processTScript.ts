@@ -36,33 +36,6 @@ export function buildProgram(
   return { program, root };
 }
 
-export function buildProgramInMemory(
-  raw: string,
-  packages: packages
-): { program: ts.Program; root: string } {
-  // TODO: Package installation
-  const options = ts.getDefaultCompilerOptions();
-  const host = ts.createCompilerHost(options, true);
-  const tempDir = fs.mkdtempSync("builder");
-  fs.writeFileSync(path.join(tempDir, "index.ts"), raw);
-  const program = ts.createProgram(
-    [path.join(tempDir, "index.ts")],
-    options,
-    host
-  );
-  // Remove temp Directory from the filesystem
-  del.sync(tempDir);
-  // Check to ensure that valid TypeScript is passed into the program
-  const diagnostics = ts.getPreEmitDiagnostics(program);
-  if (diagnostics.length !== 0) {
-    throw new Error(
-      "Failed to compile typescript module: " +
-        diagnostics.map((m) => m.messageText).join("\n")
-    );
-  }
-  return { program, root: tempDir };
-}
-
 function getTopLevelFunctions(sourceFile: ts.SourceFile): string[] {
   const foundFunctions: string[] = [];
   sourceFile.forEachChild((c) => {
@@ -223,41 +196,12 @@ function convertFuncToRoute(
   );
 }
 
-function buildTSProgramVirtual(
-  raw: string,
-  packages: packages
-): {
-  program: ts.Program;
-  packageJSON: packageJSON;
-  root: string;
-  file: string;
-} {
-  const packageJSON: packageJSON = {
-    name: "",
-    version: "1.0.0",
-    description: "",
-    main: "dist/index.js",
-    scripts: {
-      prepare: "tsc",
-      test: 'echo "Error: no test specified" && exit 1',
-    },
-    author: "",
-    license: "ISC",
-    dependencies: packages,
-    devDependencies: {},
-  };
-  const { program, root } = buildProgramInMemory(raw, packages);
-  return { program, packageJSON, root, file: "index.ts" };
-}
-
 function buildTSProgram(
   root: string,
   file: string
 ): {
   program: ts.Program;
   packageJSON: packageJSON;
-  root: string;
-  file: string;
 } {
   if (!fs.existsSync(path.join(root, "package.json"))) {
     throw new Error("Unable to find a package.json in the root directory");
@@ -266,18 +210,15 @@ function buildTSProgram(
     fs.readFileSync(path.join(root, "package.json")).toString()
   );
   const { program } = buildProgram(root, file);
-  return { program, packageJSON, root, file };
+  return { program, packageJSON };
 }
 
 export default function buildTSExpress(
-  input:
-    | { memory: true; raw: string; packages: packages }
-    | { memory: false; file: string; root: string },
+  root: string,
+  file: string,
   functions: functions
 ) {
-  const { program, packageJSON, root, file } = input.memory
-    ? buildTSProgramVirtual(input.raw, input.packages)
-    : buildTSProgram(input.root, input.file);
+  const { program, packageJSON } = buildTSProgram(root, file);
   const sourceFile = program.getSourceFile(path.join(root, file));
   assert(sourceFile);
   const typeChecker = program.getTypeChecker();
