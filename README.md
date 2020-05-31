@@ -1,6 +1,6 @@
-# Generator-JS
+# AutoAPI-JS
 
-##### Build JavaScript functions automatically into a REST API
+##### Build TypeScript and JavaScript functions automatically into a REST API
 
 ### Installing
 

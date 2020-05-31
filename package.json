@@ -28,7 +28,7 @@
   "scripts": {
     "prepare": "tsc",
     "pretest": "eslint index.ts src/**/*.ts tests/**/*.ts",
-    "test": "mocha --require ts-node/register tests/**/*.ts"
+    "test": "mocha --timeout 3000 --require ts-node/register tests/**/*.ts"
   },
   "repository": {
     "type": "git",
