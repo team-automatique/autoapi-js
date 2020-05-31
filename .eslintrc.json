@@ -3,7 +3,7 @@
     "es6": true,
     "node": true
   },
-  "extends": ["google"],
+  "extends": ["google", "prettier"],
   "globals": {
     "Atomics": "readonly",
     "SharedArrayBuffer": "readonly"
@@ -29,7 +29,6 @@
         "functions": "never"
       }
     ],
-    "indent": ["error", 2, { "SwitchCase": 1 }],
     "max-len": "warn",
     "quote-props": ["error", "as-needed"]
   }
