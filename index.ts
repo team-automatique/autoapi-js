@@ -1,4 +1,4 @@
-/*  Generator-JS: program to automatically produce a JavaScript web API
+/*  autoapi-js: program to automatically produce a JavaScript/TypeScript web API
  *  Copyright (C) 2020 Team Automatique
  *
  *  This program is free software: you can redistribute it and/or modify

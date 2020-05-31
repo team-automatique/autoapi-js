@@ -1,6 +1,6 @@
 {
-  "name": "@automatique/generator-js",
-  "version": "0.1.1",
+  "name": "@automatique/autoapi-js",
+  "version": "0.1.2",
   "description": "A tool to automatically generate Javascript/Typescript API servers based on functions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -32,14 +32,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/team-automatique/generator-js.git"
+    "url": "git+https://github.com/team-automatique/autoapi-js.git"
   },
   "author": "Team Automatique",
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/team-automatique/generator-js/issues"
+    "url": "https://github.com/team-automatique/autoapi-js/issues"
   },
-  "homepage": "https://github.com/team-automatique/generator-js#readme",
+  "homepage": "https://github.com/team-automatique/autoapi-js#readme",
   "files": [
     "dist/"
   ]
