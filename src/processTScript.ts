@@ -212,6 +212,64 @@ function buildTSProgram(
   const { program } = buildProgram(root, file);
   return { program, packageJSON };
 }
+interface exports {
+  [propName: string]:
+    | {
+        nodeType: "export";
+        exports: exports;
+      }
+    | { nodeType: "node"; func: ts.Node };
+}
+function grabExports(node: ts.Node, checker: ts.TypeChecker) {
+  if (ts.isIdentifier(node)) {
+    return checker.getSymbolAtLocation(node)!!.valueDeclaration;
+  }
+  if (ts.isArrowFunction(node)) {
+    return node;
+  }
+  if (ts.isExportAssignment(node)) {
+    // return {[node.getText()]: }
+  }
+  console.log(ts.SyntaxKind[node.kind]);
+  let result: any = {};
+  node.forEachChild((child) => {
+    if (ts.isObjectLiteralExpression(child)) {
+      result = grabExports(child, checker);
+      return;
+    }
+    if (ts.isPropertyAssignment(child)) {
+      console.log(child.name.getText());
+      const assign = grabExports(child.initializer, checker);
+      result[child.name.getText()] = assign;
+      return;
+    }
+    if (ts.isShorthandPropertyAssignment(child)) {
+      console.log(child.name.getText());
+      const assign = (<any>child).symbol.valueDeclaration;
+      result[child.name.getText()] = assign;
+      return;
+    }
+    if (ts.isIdentifier(child)) {
+      console.log(checker.typeToString(checker.getTypeAtLocation(child)));
+      return;
+    }
+
+    const missingType = ts.SyntaxKind[child.kind];
+    throw new Error(
+      `Error with export ${child.getText()}
+Cannot convert ${missingType} to an API`
+    );
+  });
+  return result;
+}
+
+// function buildRoutes(exports: exports, basePath: string): string {
+//   Object.keys(exports).forEach((e) => {
+//     const c = exports[e];
+//     if (ts.isFunctionDeclaration(c)) {
+//     }
+//   });
+// }
 
 export default function buildTSExpress(
   root: string,
@@ -219,9 +277,16 @@ export default function buildTSExpress(
   functions: functions
 ) {
   const { program, packageJSON } = buildTSProgram(root, file);
+  const typeChecker = program.getTypeChecker();
   const sourceFile = program.getSourceFile(path.join(root, file));
   assert(sourceFile);
-  const typeChecker = program.getTypeChecker();
+  let exports = {};
+  sourceFile.forEachChild((c) => {
+    if (ts.isExportAssignment(c)) {
+      exports = grabExports(c, typeChecker);
+    }
+  });
+  // buildRoutes(exports, "/");
   const processed = extractPublicFunctions(sourceFile, functions);
   // Check if all items can be represented as a GET request (ie no args)
   const allGet = processed.every((p) => p.parameters.length === 0);
