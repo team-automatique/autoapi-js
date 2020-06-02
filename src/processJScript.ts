@@ -23,7 +23,6 @@ function grabExports(node: Node, name: string, program: Program): exportMap {
             (<Identifier>n.key).name,
             program
           );
-          console.log(assign);
           results = { ...results, ...assign };
         } else {
         }
@@ -43,6 +42,26 @@ function grabExports(node: Node, name: string, program: Program): exportMap {
             declaration = dec;
             break;
           }
+        }
+        if (dec.type === "VariableDeclaration") {
+          let found = false;
+          for (const v of dec.declarations) {
+            if (v.id.type === "Identifier" && v.id.name === node.name) {
+              declaration = v.init!!;
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+        if (
+          dec.type === "ExpressionStatement" &&
+          dec.expression.type === "AssignmentExpression" &&
+          dec.expression.left.type === "Identifier" &&
+          dec.expression.left.name === node.name
+        ) {
+          declaration = dec.expression.right;
+          break;
         }
       }
       if (!declaration)

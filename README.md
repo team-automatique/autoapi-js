@@ -2,6 +2,8 @@
 
 ##### Build TypeScript and JavaScript functions automatically into a REST API
 
+###### Note: it is _HIGHLY_ recommended that you use TypeScript. The TypeChecking available will let you produce a much more reliable and better documented API
+
 ### Installing
 
 This package can be added to an existing Node project via the command
@@ -11,8 +13,8 @@ This package can be added to an existing Node project via the command
 
 AutoAPI-JS currently exports two major functions, `buildJSExpress` and `buildTSExpress`. The purpose
 of this package is to automatically build REST APIs from simple JavaScript/TypeScript functions. The functions
-that are turned into APIs are those that are in the `default export` of the main file specified to either
-`buildJSExpress` or `buildTSExpress`.
+that are turned into APIs are those that are in the `default export`(typescript) or `module.exports =`(javascript)
+of the main file specified to either `buildJSExpress` or `buildTSExpress`.
 
 Hello World Example:
 
@@ -38,6 +40,27 @@ buildTSExpress(
   "/some/path/to/a/typescript/project",
   // Main file
   "index.ts"
+);
+```
+
+`index.js`
+
+```javascript
+function hello() {
+  return "Hello world";
+}
+module.exports = {
+  hello,
+};
+```
+
+```typescript
+// Build an API
+buildJSExpress(
+  // Project root
+  "/some/path/to/a/typescript/project",
+  // Main file
+  "index.js"
 );
 ```
 
