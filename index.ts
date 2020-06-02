@@ -15,6 +15,7 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import buildJSExpress from "./src/generateExpress";
+// import buildJSExpress from "./src/generateExpress";
+import buildJSExpress from "./src/processJScript";
 import buildTSExpress from "./src/processTScript";
 export { buildTSExpress, buildJSExpress };
