@@ -1,8 +1,7 @@
 import ts from "typescript";
 import { js as beautify } from "js-beautify";
 import assert from "assert";
-import del from "del";
-import { functions, packages, getHeader } from "./shared";
+import { getHeader } from "./shared";
 import fs from "fs";
 import path from "path";
 
@@ -34,52 +33,6 @@ export function buildProgram(
     );
   }
   return { program, root };
-}
-
-function getTopLevelFunctions(sourceFile: ts.SourceFile): string[] {
-  const foundFunctions: string[] = [];
-  sourceFile.forEachChild((c) => {
-    if (ts.isFunctionDeclaration(c)) {
-      foundFunctions.push(c.name!!.getText());
-    }
-  });
-  return foundFunctions;
-}
-
-/**
- * extractPublicFunctions
- *
- * Checks to ensure that the provided script raw is valid Typescript, and
- * strips out all functions from the top level, returning those which are
- * marked in @param functions
- *
- * @throws if functions requested in functions are missing from the raw script
- *
- * @param {ts.SourceFile} sourceFile
- * @param {functions} functions
- * @return {ts.FunctionDeclaration[]}
- */
-function extractPublicFunctions(
-  sourceFile: ts.SourceFile,
-  functions: functions
-): ts.FunctionDeclaration[] {
-  const foundFunctions = getTopLevelFunctions(sourceFile);
-  const missingFunctions = Object.keys(functions).filter(
-    (k) => !foundFunctions.includes(k)
-  );
-  if (missingFunctions.length !== 0) {
-    throw new Error(
-      `Failed to find all specified functions in the source code.
-Missing (${missingFunctions.join(",")})`
-    );
-  }
-  const functionsToBeAPId: ts.FunctionDeclaration[] = [];
-  sourceFile.forEachChild((c) => {
-    if (ts.isFunctionDeclaration(c) && c.name!!.text in functions) {
-      functionsToBeAPId.push(c);
-    }
-  });
-  return functionsToBeAPId;
 }
 
 interface packageJSON {
@@ -141,11 +94,15 @@ ${params.join("\n")}
  * to prevent missing arguments
  *
  * @param {ts.FunctionDeclaration} func
+ * @param {string} funcAlias
+ * @param {string} path
  * @param {ts.TypeChecker} checker
  * @return {string} function as an API route for an express server
  */
 function convertFuncToRoute(
   func: ts.FunctionDeclaration,
+  funcAlias: string,
+  path: string,
   checker: ts.TypeChecker
 ): string {
   let rt = checker.typeToString(checker.getTypeAtLocation(func));
@@ -155,8 +112,8 @@ function convertFuncToRoute(
   if (func.parameters.length === 0) {
     // Perform a GET request
     method = "get";
-    response = `app.get('/${func.name!!.getText()}', (req, res) => {
-      const response = ${func.name!!.getText()}();
+    response = `app.get('${path}', (req, res) => {
+      const response = ${funcAlias}();
       res.send(JSON.stringify(response));
       })`;
   } else {
@@ -177,23 +134,16 @@ function convertFuncToRoute(
             return;
           }`;
       });
-    response = `app.post('/${func.name!!.getText()}', (req, res) => {
+    response = `app.post('${path}', (req, res) => {
       const body = req.body;
       // Assert that required incoming arguments are all present
       ${typeAssertions.join("\n")}
-      const response = ${func.name?.getText()}(${requestParams});
+      const response = ${funcAlias}(${requestParams});
       res.send(JSON.stringify(response));
     });`;
   }
   // Generate API documentation
-  return (
-    generateJSDoc(
-      "/" + func.name!!.getText(),
-      method,
-      func.parameters,
-      checker
-    ) + response
-  );
+  return generateJSDoc(path, method, func.parameters, checker) + response;
 }
 
 function buildTSProgram(
@@ -212,87 +162,120 @@ function buildTSProgram(
   const { program } = buildProgram(root, file);
   return { program, packageJSON };
 }
-interface exports {
-  [propName: string]:
-    | {
-        nodeType: "export";
-        exports: exports;
-      }
-    | { nodeType: "node"; func: ts.Node };
+
+interface exportMap {
+  [key: string]:
+    | { type: "exports"; exports: exportMap }
+    | { type: "func"; func: ts.Node };
 }
-function grabExports(node: ts.Node, checker: ts.TypeChecker) {
+
+function grabExports(
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  name: string
+): exportMap {
+  // console.log(ts.SyntaxKind[node.kind]);
+  if (ts.isExportAssignment(node)) {
+    return grabExports(node.expression, checker, name);
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    let result: exportMap = {};
+    node.forEachChild((c) => {
+      if (ts.isPropertyAssignment(c)) {
+        result = {
+          ...result,
+          ...grabExports(c.initializer, checker, c.name.getText()),
+        };
+      }
+      if (ts.isShorthandPropertyAssignment(c)) {
+        checker.getShorthandAssignmentValueSymbol(c);
+        result = {
+          ...result,
+          ...grabExports(
+            checker.getShorthandAssignmentValueSymbol(c)!!.valueDeclaration,
+            checker,
+            c.name.getText()
+          ),
+        };
+      }
+    });
+    return { [name]: { type: "exports", exports: result } };
+  }
+  if (ts.isVariableDeclaration(node)) {
+    return grabExports(node.initializer!!, checker, name);
+  }
   if (ts.isIdentifier(node)) {
-    return checker.getSymbolAtLocation(node)!!.valueDeclaration;
+    return grabExports(
+      checker.getSymbolAtLocation(node)!!.valueDeclaration,
+      checker,
+      name
+    );
   }
   if (ts.isArrowFunction(node)) {
-    return node;
+    return { [name]: { func: node, type: "func" } };
   }
-  if (ts.isExportAssignment(node)) {
-    // return {[node.getText()]: }
+  if (ts.isFunctionDeclaration(node)) {
+    return { [name]: { func: node, type: "func" } };
   }
-  console.log(ts.SyntaxKind[node.kind]);
-  let result: any = {};
-  node.forEachChild((child) => {
-    if (ts.isObjectLiteralExpression(child)) {
-      result = grabExports(child, checker);
-      return;
-    }
-    if (ts.isPropertyAssignment(child)) {
-      console.log(child.name.getText());
-      const assign = grabExports(child.initializer, checker);
-      result[child.name.getText()] = assign;
-      return;
-    }
-    if (ts.isShorthandPropertyAssignment(child)) {
-      console.log(child.name.getText());
-      const assign = (<any>child).symbol.valueDeclaration;
-      result[child.name.getText()] = assign;
-      return;
-    }
-    if (ts.isIdentifier(child)) {
-      console.log(checker.typeToString(checker.getTypeAtLocation(child)));
-      return;
-    }
+  throw new Error(`Unrecognized operator ${ts.SyntaxKind[node.kind]}`);
+}
 
-    const missingType = ts.SyntaxKind[child.kind];
-    throw new Error(
-      `Error with export ${child.getText()}
-Cannot convert ${missingType} to an API`
-    );
-  });
+function buildRoutes(
+  exports: exportMap,
+  basePath: string,
+  checker: ts.TypeChecker
+): string {
+  const result = Object.keys(exports)
+    .map((key) => {
+      const exp = exports[key];
+      if (exp.type === "exports") {
+        return buildRoutes(exp.exports, basePath + "/" + key, checker);
+      } else {
+        const path = basePath + "/" + key;
+        const alias = path.split("/").slice(1).join(".");
+        return convertFuncToRoute(
+          <any>exp.func,
+          "__API." + alias,
+          basePath + "/" + key,
+          checker
+        );
+      }
+    })
+    .filter((f) => f)
+    .join("\n\n");
   return result;
 }
 
-// function buildRoutes(exports: exports, basePath: string): string {
-//   Object.keys(exports).forEach((e) => {
-//     const c = exports[e];
-//     if (ts.isFunctionDeclaration(c)) {
-//     }
-//   });
-// }
-
-export default function buildTSExpress(
-  root: string,
-  file: string,
-  functions: functions
-) {
+export default function buildTSExpress(root: string, file: string) {
   const { program, packageJSON } = buildTSProgram(root, file);
   const typeChecker = program.getTypeChecker();
   const sourceFile = program.getSourceFile(path.join(root, file));
   assert(sourceFile);
-  let exports = {};
+  let exports: exportMap = {};
+  let foundExports = false;
   sourceFile.forEachChild((c) => {
     if (ts.isExportAssignment(c)) {
-      exports = grabExports(c, typeChecker);
+      exports = grabExports(c, typeChecker, "");
+      foundExports = true;
     }
   });
-  // buildRoutes(exports, "/");
-  const processed = extractPublicFunctions(sourceFile, functions);
-  // Check if all items can be represented as a GET request (ie no args)
-  const allGet = processed.every((p) => p.parameters.length === 0);
-  if (!allGet) {
-    packageJSON.dependencies["body-parser"] = "latest";
+  if (!foundExports) {
+    throw new Error(
+      `Provided file ${file} has no default exports
+Functions must be exported in order to build an API`
+    );
   }
+  const base = exports[""];
+  const routes =
+    base.type === "exports"
+      ? buildRoutes(base.exports, "", typeChecker)
+      : buildRoutes(exports, "", typeChecker);
+  // console.log(routes);
+  // // Check if all items can be represented as a GET request (ie no args)
+  // const allGet = processed.every((p) => p.parameters.length === 0);
+  // if (!allGet) {
+  packageJSON.dependencies["body-parser"] = "latest";
+  // }
   packageJSON.dependencies = {
     express: "~4",
     "@types/express": "~4",
@@ -304,28 +287,12 @@ export default function buildTSExpress(
     ...packageJSON.devDependencies,
   };
   let response = getHeader();
+  response += `import * as __API from './${file}'`;
   response += "// Setup server to send API routes\n";
   response += 'import express from "express";\n';
   response += "const app = express();\n";
-  if (!allGet) {
-    response += `// Add body parser for receiving POST requests
-      const bodyParser = require('body-parser');
-      app.use(bodyParser.json());\n`;
-  }
-  // Sort all exported functions to allow for correct insertion of functions
-  processed.sort((e1, e2) => e1.pos - e2.pos);
-  const source = sourceFile.getText();
-  let prevPos = 0;
-  processed.forEach((func) => {
-    response += "\n" + source.substring(prevPos, func.end) + "\n";
-    const c = (<any>func).jsDoc;
-    const taget = ts.getJSDocTags(func);
-    const newRoute = convertFuncToRoute(func, typeChecker);
-    prevPos = func.end;
-    response += newRoute;
-  });
-  response += source.substring(prevPos);
-  // Add action to listen on local host
+  response += routes;
+  // // Add action to listen on local host
   response +=
     "app.listen(3000, () => console.log('API listening at http://localhost:3000'));";
   return {
@@ -333,20 +300,4 @@ export default function buildTSExpress(
     packageJSON: JSON.stringify(packageJSON, null, 2),
     tsConfig: JSON.stringify(generateTsconfig(), null, 2),
   };
-}
-
-/** getAllTopLevelFunctions
- *
- * @param {string} file path to a TypeScript file on disk, to parse and return
- *  all top level functions
- * @return {string[]} all top level function declarations
- */
-export function getAllTopLevelFunctions(file: string): string[] {
-  const { program } = buildProgram(
-    path.basename(path.dirname(file)),
-    path.basename(file)
-  );
-  const sourceFile = program.getSourceFile(file);
-  assert(sourceFile);
-  return getTopLevelFunctions(sourceFile);
 }
