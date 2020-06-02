@@ -5,27 +5,39 @@
 ### Installing
 
 This package can be added to an existing Node project via the command
-`npm install @automatique/generator-js`
+`npm install @automatique/autoapi-js`
 
 ### Usage
 
-Generator-JS currently exports two major functions, `buildJSExpress` and `buildTSExpress`.
-Additionally, the function `getTSTopLevelFunctions` will return a list of all top-level functions
-in a TypeScript file.
+AutoAPI-JS currently exports two major functions, `buildJSExpress` and `buildTSExpress`. The purpose
+of this package is to automatically build REST APIs from simple JavaScript/TypeScript functions. The functions
+that are turned into APIs are those that are in the `default export` of the main file specified to either
+`buildJSExpress` or `buildTSExpress`.
 
-Example Usage:
+Hello World Example:
 
-```javascript
-// Build a program, with the function "foo" exported
+`index.ts`:
+
+```typescript
+function hello() {
+  return "Hello world";
+}
+
+export default {
+  hello: hello,
+};
+```
+
+Running the below buildTSExpress function with the above snippet in `index.ts` will generate an API,
+with a single path, `/hello` which executes and returns the result of the function `hello()`
+
+```typescript
+// Build an API
 buildTSExpress(
-  // Program
+  // Project root
   "/some/path/to/a/typescript/project",
   // Main file
-  "index.ts",
-  // Functions to be exported
-  {
-    foo: { api: true },
-  }
+  "index.ts"
 );
 ```
 

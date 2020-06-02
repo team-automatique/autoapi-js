@@ -18,4 +18,3 @@
 import buildJSExpress from "./src/generateExpress";
 import buildTSExpress from "./src/processTScript";
 export { buildTSExpress, buildJSExpress };
-// buildTSExpress("temp", "index.ts");

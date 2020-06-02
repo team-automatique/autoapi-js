@@ -4,7 +4,6 @@ import assert from "assert";
 import { getHeader } from "./shared";
 import fs from "fs";
 import path from "path";
-
 /** buildProgram
  *
  * @param {string} root the root directory to an existing workspace
@@ -73,7 +72,8 @@ function generateJSDoc(
   path: string,
   method: "post" | "get",
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  doc?: ts.JSDoc
 ): string {
   const params = parameters.map(
     (f) =>
@@ -105,8 +105,16 @@ function convertFuncToRoute(
   path: string,
   checker: ts.TypeChecker
 ): string {
-  let rt = checker.typeToString(checker.getTypeAtLocation(func));
-  rt = rt.substr(rt.indexOf("=>") + 3);
+  const c = checker.typeToTypeNode(checker.getTypeAtLocation(func));
+  const rtValues = checker
+    .getTypeAtLocation(func)
+    .getCallSignatures()[0]
+    .getReturnType();
+  let rtypes = [];
+  if (rtValues.isUnionOrIntersection())
+    rtypes = rtValues.types.map((t) => checker.typeToString(t));
+  else rtypes = [checker.typeToString(rtValues)];
+  const hasPromise = rtypes.filter((f) => f.match(/^Promise<.*>$/)).length > 0;
   let response = "";
   let method: "post" | "get" = "post";
   if (func.parameters.length === 0) {
@@ -114,7 +122,13 @@ function convertFuncToRoute(
     method = "get";
     response = `app.get('${path}', (req, res) => {
       const response = ${funcAlias}();
-      res.send(JSON.stringify(response));
+      ${
+        hasPromise
+          ? `if(isPromise(response) 
+      response.then(r => res.send(r)); 
+      else res.send(response);"`
+          : "res.send(response);"
+      }
       })`;
   } else {
     method = "post";
@@ -139,7 +153,15 @@ function convertFuncToRoute(
       // Assert that required incoming arguments are all present
       ${typeAssertions.join("\n")}
       const response = ${funcAlias}(${requestParams});
-      res.send(JSON.stringify(response));
+      ${
+        hasPromise
+          ? `if(isPromise(response)){
+        response.then(r => res.send(r));
+      }else{
+        res.send(response);
+      }`
+          : "res.send(response);"
+      }
     });`;
   }
   // Generate API documentation
@@ -174,7 +196,6 @@ function grabExports(
   checker: ts.TypeChecker,
   name: string
 ): exportMap {
-  // console.log(ts.SyntaxKind[node.kind]);
   if (ts.isExportAssignment(node)) {
     return grabExports(node.expression, checker, name);
   }
@@ -220,6 +241,13 @@ function grabExports(
   throw new Error(`Unrecognized operator ${ts.SyntaxKind[node.kind]}`);
 }
 
+/** buildRoutes - recursively build API routes
+ *
+ * @param {exportMap} exports
+ * @param {string} basePath
+ * @param {ts.TypeChecker} checker
+ * @return {string} Express routes constructed from the exportMap
+ */
 function buildRoutes(
   exports: exportMap,
   basePath: string,
@@ -270,13 +298,8 @@ Functions must be exported in order to build an API`
     base.type === "exports"
       ? buildRoutes(base.exports, "", typeChecker)
       : buildRoutes(exports, "", typeChecker);
-  // console.log(routes);
-  // // Check if all items can be represented as a GET request (ie no args)
-  // const allGet = processed.every((p) => p.parameters.length === 0);
-  // if (!allGet) {
-  packageJSON.dependencies["body-parser"] = "latest";
-  // }
   packageJSON.dependencies = {
+    "body-parser": "latest",
     express: "~4",
     "@types/express": "~4",
     "is-promise": "^4",
@@ -287,10 +310,16 @@ Functions must be exported in order to build an API`
     ...packageJSON.devDependencies,
   };
   let response = getHeader();
-  response += `import * as __API from './${file}'`;
+  response += `import __API from './${file.substring(
+    0,
+    file.lastIndexOf(".")
+  )}'\n`;
   response += "// Setup server to send API routes\n";
   response += 'import express from "express";\n';
+  response += "import isPromise from 'is-promise';\n";
+  response += "import bodyParser from 'body-parser'\n";
   response += "const app = express();\n";
+  response += "app.use(bodyParser.json());\n\n";
   response += routes;
   // // Add action to listen on local host
   response +=

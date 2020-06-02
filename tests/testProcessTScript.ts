@@ -76,5 +76,40 @@ describe("process TypeScript", () => {
     it("should have app.listen", () =>
       assert.include(result.index, "app.listen("));
   });
+  describe("build a deep path", () => {
+    const program = `function square(x: number){ return x * x; }
+    function cube(x: number){ return x * square(x); }
+    export default {
+      math: {
+        square,
+        cube
+      },
+      hello:{
+        darkness:{
+          my:{
+            old:{
+              friend: () => "I've come to talk to you again"
+            }
+          }
+        }
+      }
+    }`;
+    const folder = path.join(dir, "deep_path");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, "index.ts"), program);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    const result = buildTSExpress(folder, "index.ts");
+    it("should have an api post request", () =>
+      assert.include(result.index, "app.post("));
+    it("should have path /math/square", () =>
+      assert.include(result.index, "app.post('/math/square'"));
+    it("should have path /math/cube", () =>
+      assert.include(result.index, "app.post('/math/cube'"));
+    it("should have deep greeting", () =>
+      assert.include(result.index, "app.get('/hello/darkness/my/old/friend'"));
+  });
   after(() => del(dir));
 });
