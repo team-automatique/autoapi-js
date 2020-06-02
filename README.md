@@ -1,8 +1,8 @@
 # AutoAPI-JS
 
-##### Build TypeScript and JavaScript functions automatically into a REST API
+### Build TypeScript and JavaScript functions automatically into a REST API
 
-###### Note: it is _HIGHLY_ recommended that you use TypeScript. The TypeChecking available will let you produce a much more reliable and better documented API
+###### Note: it is _HIGHLY_ recommended that you use TypeScript. The typing system using in TypeScript will let you produce a much more reliable and better documented API
 
 ### Installing
 
@@ -16,12 +16,12 @@ of this package is to automatically build REST APIs from simple JavaScript/TypeS
 that are turned into APIs are those that are in the `default export`(typescript) or `module.exports =`(javascript)
 of the main file specified to either `buildJSExpress` or `buildTSExpress`.
 
-Hello World Example:
+#### Hello Automatique: TypeScript
 
 `index.ts`:
 
 ```typescript
-function hello() {
+function hello(): string {
   return "Hello world";
 }
 
@@ -43,6 +43,11 @@ buildTSExpress(
 );
 ```
 
+The above returns an object with three attributes, "index", the text of an index.ts script,
+"packageJSON", a package.json file, and "tsConfig", a valid typescript config.
+
+#### Hello Automatique: JavaScript
+
 `index.js`
 
 ```javascript
@@ -54,7 +59,7 @@ module.exports = {
 };
 ```
 
-```typescript
+```javascript
 // Build an API
 buildJSExpress(
   // Project root
@@ -64,9 +69,13 @@ buildJSExpress(
 );
 ```
 
-The above returns an object with three attributes, "index", the text of an index.ts script,
-"packageJSON", a package.json file, and "tsConfig", a valid typescript config.
+### Notes
 
-Note there are some changes in the source file that must be made to correctly work
+There are some changes in the source file that must be made to correctly work
 
 1. URL Paths are case-insensitive, unlike JavaScript/TypeScript identifiers. If you attempt to export 2 functions with the same name, differing by casing (eg foo() and FOO()), undefined behaviour will occur
+
+### Contributing
+
+`autoapi-js` is an open-source project by Automatique. If you encounter bugs, find problems or just want to contribute features,
+feel free to either open an issue or fork and make a pull request
