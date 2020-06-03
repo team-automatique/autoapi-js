@@ -327,7 +327,7 @@ Functions must be exported in order to build an API`
   response += routes;
   // Add action to listen on local host
   response +=
-    "app.listen(3000, () => console.log('API listening at http://localhost:3000'));";
+    "\napp.listen(3000, () => console.log('API listening at http://localhost:3000'));";
   return {
     index: beautify(response),
     packageJSON: JSON.stringify(packageJSON, null, 2),
