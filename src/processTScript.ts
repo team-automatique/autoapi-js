@@ -274,7 +274,11 @@ function buildRoutes(
   return result;
 }
 
-export default function buildTSExpress(root: string, file: string) {
+export default function buildTSExpress(
+  root: string,
+  file: string,
+  newSource: string = file
+) {
   const { program, packageJSON } = buildTSProgram(root, file);
   const typeChecker = program.getTypeChecker();
   const sourceFile = program.getSourceFile(path.join(root, file));
@@ -310,9 +314,9 @@ Functions must be exported in order to build an API`
     ...packageJSON.devDependencies,
   };
   let response = getHeader();
-  response += `import __API from './${file.substring(
+  response += `import __API from './${newSource.substring(
     0,
-    file.lastIndexOf(".")
+    newSource.lastIndexOf(".")
   )}'\n`;
   response += "// Setup server to send API routes\n";
   response += 'import express from "express";\n';

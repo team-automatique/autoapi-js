@@ -40,6 +40,8 @@ buildTSExpress(
   "/some/path/to/a/typescript/project",
   // Main file
   "index.ts"
+  // Optional filename to import from (eg if moving the main file to another name)
+  "app.ts"
 );
 ```
 
