@@ -51,14 +51,10 @@ describe("process TypeScript", () => {
       JSON.stringify(packageJSON())
     );
     const result = buildTSExpress(folder, "index.ts");
-    it("should produce parsable package.json", () => {
-      JSON.parse(result.packageJSON);
-    });
-    const packageJson = JSON.parse(result.packageJSON);
     it("should declare 'express' as a requirement", () =>
-      assert("express" in packageJson.dependencies));
+      assert("express" in result.packageJSON.dependencies));
     it("should declare 'typescript' as a devDependency", () =>
-      assert("typescript" in packageJson.devDependencies));
+      assert("typescript" in result.packageJSON.devDependencies));
     it("should have a call to the function", () =>
       assert.include(result.index, "__API.foo()"));
     it("should import express", () =>

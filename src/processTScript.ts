@@ -88,6 +88,22 @@ ${params.join("\n")}
  * 
  */\n`;
 }
+
+interface routeData {
+  type: "func";
+  doc: string;
+  params: { id: string }[];
+  method: "get" | "post";
+  path: string;
+}
+interface multiRoute {
+  [propName: string]:
+    | {
+        type: "export";
+        export: multiRoute;
+      }
+    | routeData;
+}
 /** convertFuncToRoute - Turn a ts.FunctionDeclaration into a string snippet
  * The resulting string from this function is an API route (for an express
  * server) which calls the function in question. It also performs some checking
@@ -104,7 +120,7 @@ function convertFuncToRoute(
   funcAlias: string,
   path: string,
   checker: ts.TypeChecker
-): string {
+): { code: string; route: routeData } {
   const rtValues = checker
     .getTypeAtLocation(func)
     .getCallSignatures()[0]
@@ -125,28 +141,28 @@ function convertFuncToRoute(
         throw new Error("Cannot accept a promise as the input to an API");
     });
     return {
-      required: !param.questionToken && !param.initializer,
-      name: param.name.getText(),
+      optional: param.questionToken || param.initializer,
+      id: param.name.getText(),
       types,
       inlineable: types.every((t) => t.match("number") || t.match("string")),
-      inlined: false,
+      inline: false,
     };
   });
   // Perform a GET request
   if (params.length < 2 && params.every((p) => p.inlineable)) {
     method = "get";
-    params.forEach((p) => (p.inlined = true));
+    params.forEach((p) => (p.inline = true));
   }
   response += `app.${method}('${path}', (req, res) => {`;
   // Build local variables and check for existance
   response += params
     .map((p) => {
-      let variable = `const ${p.name}: any = ${
-        p.inlined ? "req.query" : "req.body"
-      }.${p.name};\n`;
-      if (p.required) {
-        variable += `if(!${p.name}){
-        res.status(400).send({error: "Missing parameter ${p.name}"});
+      let variable = `const ${p.id}: any = ${
+        p.inline ? "req.query" : "req.body"
+      }.${p.id};\n`;
+      if (!p.optional) {
+        variable += `if(!${p.id}){
+        res.status(400).send({error: "Missing parameter ${p.id}"});
         return;}\n`;
       }
       return variable;
@@ -154,7 +170,7 @@ function convertFuncToRoute(
     .join("\n");
   // Execute function
   let body = `const response = ${funcAlias}(${params
-    .map((p) => p.name)
+    .map((p) => p.id)
     .join(", ")});\n`;
   if (hasPromise) {
     body += `if(isPromise(response))
@@ -175,10 +191,24 @@ function convertFuncToRoute(
   response += body;
   response += "});";
   // Generate API documentation
-  return (
+  const code =
     generateJSDoc(path, method, func.parameters, checker, (<any>func).jsDoc) +
-    response
-  );
+    response;
+  return {
+    code,
+    route: {
+      type: "func",
+      doc: (<any>func).jsDoc || "",
+      method,
+      path,
+      params: params.map((p) => ({
+        id: p.id,
+        inline: p.inline,
+        type: p.types,
+        optional: p.optional,
+      })),
+    },
+  };
 }
 
 function buildTSProgram(
@@ -265,26 +295,32 @@ function buildRoutes(
   exports: exportMap,
   basePath: string,
   checker: ts.TypeChecker
-): string {
-  const result = Object.keys(exports)
-    .map((key) => {
-      const exp = exports[key];
-      if (exp.type === "exports") {
-        return buildRoutes(exp.exports, basePath + "/" + key, checker);
-      } else {
-        const path = basePath + "/" + key;
-        const alias = path.split("/").slice(1).join(".");
-        return convertFuncToRoute(
-          <any>exp.func,
-          "__API." + alias,
-          basePath + "/" + key,
-          checker
-        );
-      }
-    })
-    .filter((f) => f)
-    .join("\n\n");
-  return result;
+): { code: string; routes: multiRoute } {
+  let code = "";
+  const routes: multiRoute = {};
+  Object.keys(exports).forEach((key) => {
+    const exp = exports[key];
+    if (exp.type === "exports") {
+      const res = buildRoutes(exp.exports, basePath + "/" + key, checker);
+      code += res.code;
+      routes[key] = {
+        type: "export",
+        export: res.routes,
+      };
+    } else {
+      const path = basePath + "/" + key;
+      const alias = path.split("/").slice(1).join(".");
+      const res = convertFuncToRoute(
+        <any>exp.func,
+        "__API." + alias,
+        basePath + "/" + key,
+        checker
+      );
+      code += res.code;
+      routes[key] = res.route;
+    }
+  });
+  return { code, routes };
 }
 
 export default function buildTSExpress(
@@ -337,13 +373,14 @@ Functions must be exported in order to build an API`
   response += "import bodyParser from 'body-parser'\n";
   response += "const app = express();\n";
   response += "app.use(bodyParser.json());\n\n";
-  response += routes;
+  response += routes.code;
   // Add action to listen on local host
   response +=
     "\napp.listen(3000, () => console.log('API listening at http://localhost:3000'));";
   return {
     index: beautify(response),
-    packageJSON: JSON.stringify(packageJSON, null, 2),
-    tsConfig: JSON.stringify(generateTsconfig(), null, 2),
+    packageJSON,
+    tsConfig: generateTsconfig(),
+    routeData: routes.routes,
   };
 }
