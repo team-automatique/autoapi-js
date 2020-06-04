@@ -13,52 +13,30 @@ describe("process TypeScript", () => {
   const dir = "__ts_temp_output";
   // Create temporary directory for building files
   fs.mkdirSync(dir);
-  describe("parse trivial function", () => {
-    const folder = path.join(dir, "trivial_func");
-    fs.mkdirSync(folder);
-    fs.writeFileSync(
-      path.join(folder, "index.ts"),
-      "console.log('hello world');"
-    );
-    it("should properly parse typescript", () =>
-      buildProgram(folder, "index.ts"));
-  });
-
-  describe("incorrectly typed program", () => {
-    const folder = path.join(dir, "bad_typing");
-    fs.mkdirSync(folder);
-    fs.writeFileSync(
-      path.join(folder, "index.ts"),
-      "function foo(): string { return 1; }"
-    );
-    it("should fail to parse typescript", () =>
-      assert.throws(() => buildProgram(folder, "index.ts")));
-  });
-
-  describe("missing function", () => {
+  describe("missing exports", () => {
     const program = "function foo():string{return 'hello';}";
-    const folder = path.join(dir, "missing_func");
+    const folder = path.join(dir, "missing_exports");
     fs.mkdirSync(folder);
     fs.writeFileSync(path.join(folder, "index.ts"), program);
     fs.writeFileSync(
       path.join(folder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    it("should throw an exception when looking for function bar", () =>
-      assert.throws(() =>
-        buildTSExpress(folder, "index.ts", { bar: { api: true } })
-      ));
+    it("should throw an exception when nothing is exported", () =>
+      assert.throws(() => buildTSExpress(folder, "index.ts")));
   });
-  describe("build 0 function express server", () => {
-    const program = "console.log('hello world');";
-    const folder = path.join(dir, "0_functions");
+  describe("build 1 function express server", () => {
+    const program = `console.log('hello world');
+    function foo(){return 1;}
+    export default {foo}`;
+    const folder = path.join(dir, "1_function");
     fs.mkdirSync(folder);
     fs.writeFileSync(path.join(folder, "index.ts"), program);
     fs.writeFileSync(
       path.join(folder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(folder, "index.ts", {});
+    const result = buildTSExpress(folder, "index.ts");
     it("should produce parsable package.json", () => {
       JSON.parse(result.packageJSON);
     });
@@ -67,16 +45,22 @@ describe("process TypeScript", () => {
       assert("express" in packageJson.dependencies));
     it("should declare 'typescript' as a devDependency", () =>
       assert("typescript" in packageJson.devDependencies));
-    it("should retain the program text", () =>
-      assert.notEqual(result.index.indexOf(program), -1));
+    it("should have a call to the function", () =>
+      assert.include(result.index, "__API.foo()"));
     it("should import express", () =>
       assert.notEqual(
         result.index.indexOf('import express from "express"'),
         -1
       ));
+    it("should have path foo", () =>
+      assert.include(result.index, "app.get('/foo'"));
   });
+
   describe("build a single function with arg", () => {
-    const program = "function odd(x:number){return x % 2 === 1;}";
+    const program = `function odd(x:number){return x % 2 === 1;}
+    export default {
+      odd: odd
+    }`;
     const infolder = path.join(dir, "single_func");
     fs.mkdirSync(infolder);
     fs.writeFileSync(path.join(infolder, "index.ts"), program);
@@ -84,19 +68,48 @@ describe("process TypeScript", () => {
       path.join(infolder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(infolder, "index.ts", { odd: { api: true } });
+    const result = buildTSExpress(infolder, "index.ts");
     it("should have an api post request", () =>
       assert.include(result.index, "app.post('/odd', (req, res) => "));
-    it("should have the original function text", () =>
-      assert.include(result.index, "function odd(x: number)"));
+    it("should have the a check that body.odd exists", () =>
+      assert.include(result.index, "!body.x"));
     it("should have app.listen", () =>
       assert.include(result.index, "app.listen("));
   });
-  // // TODO: Add in package installation if a package exists
-  // // describe("build a function with an external import", () => {
-  // //   const program = "import fetch from 'esprima';";
-  // //   it("should compile with external dependency", () =>
-  // //     buildTSExpress(program, {}, { typescript: "latest" }));
-  // // });
+  describe("build a deep path", () => {
+    const program = `function square(x: number){ return x * x; }
+    function cube(x: number){ return x * square(x); }
+    export default {
+      math: {
+        square,
+        cube
+      },
+      hello:{
+        darkness:{
+          my:{
+            old:{
+              friend: () => "I've come to talk to you again"
+            }
+          }
+        }
+      }
+    }`;
+    const folder = path.join(dir, "deep_path");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, "index.ts"), program);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    const result = buildTSExpress(folder, "index.ts");
+    it("should have an api post request", () =>
+      assert.include(result.index, "app.post("));
+    it("should have path /math/square", () =>
+      assert.include(result.index, "app.post('/math/square'"));
+    it("should have path /math/cube", () =>
+      assert.include(result.index, "app.post('/math/cube'"));
+    it("should have deep greeting", () =>
+      assert.include(result.index, "app.get('/hello/darkness/my/old/friend'"));
+  });
   after(() => del(dir));
 });

@@ -1,85 +1,176 @@
-import assert from "assert";
+import { assert } from "chai";
 import "mocha";
 import { parseScript } from "esprima";
 import { buildJSExpress } from "../index";
 import processJScript from "../src/processJScript";
+import fs from "fs";
+import path from "path";
+import del from "del";
+import { packageJSON } from "./utils";
 
 describe("processJScript", () => {
-  describe("trivial function", () => {
-    const program = "console.log('hello');";
-    const response = processJScript(program, {});
-    it("should not generate any functions when none are presented", () =>
-      assert.equal(response.functions.length, 0));
-    it("should leave the program intact, not removing any extra stuff", () =>
-      assert.equal(response.initializer, program));
+  const dir = "__js_temp_output";
+  // Create temporary directory for building files
+  fs.mkdirSync(dir);
+  describe("missing files", () => {
+    const folder = path.join(dir, "missing_files");
+    it("should throw an exception when folder is missing", () =>
+      assert.throws(() => processJScript(folder, "index.js")));
+    fs.mkdirSync(folder);
+    it("should throw an exception when file is missing", () =>
+      assert.throws(() => processJScript(folder, "index.js")));
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      "module.exports = {foo: ()=>'hi'}"
+    );
+    it("should throw an exception when package.json is missing", () =>
+      assert.throws(() => processJScript(folder, "index.js")));
   });
   describe("handle malformed javascript", () => {
-    const program = "lett v = 5;";
+    const folder = path.join(dir, "malformed");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, "index.js"), "lett v = 5;");
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
     it("should throw an exception", () =>
-      assert.throws(() => processJScript(program, {})));
+      assert.throws(() => processJScript(folder, "index.js")));
   });
-  describe("function with 0 params, otherwise empty file", () => {
-    const program = "function hello(){return 'hello world'}";
-    const response = processJScript(program, { hello: { api: true } });
-    it("should have 1 function found", () =>
-      assert.equal(response.functions.length, 1));
-    it("should have no extra setup code", () =>
-      assert.equal(response.initializer.length, 0));
-    it("should have no arguments in the single function", () =>
-      assert.equal(response.functions[0].args.length, 0));
-    it("should not be async", () =>
-      assert.equal(response.functions[0].async, false));
-    it("should match function found and input raw values", () =>
-      assert.equal(response.functions[0].raw, program));
-    it('should have the correct name of the function, namely "hello"', () =>
-      assert.equal(response.functions[0].name, "hello"));
+  describe("no export", () => {
+    const folder = path.join(dir, "no_export");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      "function f() {console.log('hello')}"
+    );
+    it("should throw an exception when no exports are present", () =>
+      assert.throws(() => processJScript(folder, "index.js")));
   });
-  describe("function with 1 params, nothing else", () => {
-    const program = "function times2(x){ return 2*x;}";
-    const response = processJScript(program, { times2: { api: true } });
-    it("should have 1 function found", () => {
-      assert.equal(response.functions.length, 1);
-    });
-    it("should have no extra setup code", () =>
-      assert.equal(response.initializer.length, 0));
-    it("should have 1 argument", () =>
-      assert.equal(response.functions[0].args.length, 1));
-    it("should have argument titled 'x'", () =>
-      assert.equal(response.functions[0].args[0], "x"));
+  describe("multiple exports", () => {
+    const folder = path.join(dir, "multiple_exports");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      `function f() {console.log('hello')};
+      module.exports = {f}
+      module.exports = {foo: f}`
+    );
+    it("should throw an exception when more than 1 export are present", () =>
+      assert.throws(() => processJScript(folder, "index.js")));
   });
-  describe("function with 1 param, with preset value", () => {
-    const program = "function times2(x = 5){ return 2*x;}";
-    const response = processJScript(program, { times2: { api: true } });
-    it("should have 1 function found", () => {
-      assert.equal(response.functions.length, 1);
-    });
-    it("should have no extra setup code", () =>
-      assert.equal(response.initializer.length, 0));
-    it("should have 1 argument", () =>
-      assert.equal(response.functions[0].args.length, 1));
-    it("should have argument titled 'x'", () =>
-      assert.equal(response.functions[0].args[0], "x"));
-  });
-  describe("script is missing required function", () => {
-    const program = "function times2(x = 5){return 2*x;}";
-    it("should throw an exception that the function (hello) is missing", () =>
-      assert.throws(() => processJScript(program, { hello: { api: true } })));
-  });
-});
 
-describe("Build Express", () => {
-  describe("Empty program", () => {
-    const program = "";
-    const response = buildJSExpress(program, {}, {});
-    it("should produce valid package.json", () => JSON.parse(response.package));
-    it("should have express in package dependencies", () => {
-      assert.equal(JSON.parse(response.package).dependencies.express, "^4");
-    });
-    it("should have import of express in index.js", () =>
-      assert.notEqual(response.index.search(/require\('express'\)/), -1));
-    it("should not have any app.get functions", () =>
-      assert.equal(response.index.search("app.get"), -1));
-    it("should successfully parse as a script", () =>
-      parseScript(response.index));
+  describe("file with single func exported", () => {
+    const folder = path.join(dir, "basic_func");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      `function f() {return "foo"};
+      module.exports = {foo: f}`
+    );
+    const response = processJScript(folder, "index.js");
+    it("should have an API get request for '/foo'", () =>
+      assert.include(response.index, "app.get('/foo'"));
+    it("should make a call to __API.foo", () =>
+      assert.include(response.index, "__API.foo()"));
+    const foundJSON = JSON.parse(response.packageJSON);
+    it("should have express, is-promise and body-parser as dependencies", () =>
+      assert.hasAllKeys(foundJSON.dependencies, [
+        "express",
+        "is-promise",
+        "body-parser",
+      ]));
+    it("should properly parse resulting JS", () =>
+      assert.doesNotThrow(() => parseScript(response.index)));
   });
+  describe("arrow function", () => {
+    const folder = path.join(dir, "arrow_func");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      "module.exports = {foo: ()=> 'Hello world'}"
+    );
+    const response = processJScript(folder, "index.js");
+    it("should have an API get for '/foo'", () =>
+      assert.include(response.index, "app.get('/foo'"));
+    it("should make call to __API.foo", () =>
+      assert.include(response.index, "__API.foo()"));
+    it("should properly parse resulting JS", () =>
+      assert.doesNotThrow(() => parseScript(response.index)));
+  });
+  describe("literal", () => {
+    const folder = path.join(dir, "literal_not_func");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      "module.exports = {foo: 5}"
+    );
+    it("should throw an exception when trying to export a constant", () =>
+      assert.throws(() => processJScript(folder, "index.js")));
+  });
+  describe("deep path", () => {
+    const folder = path.join(dir, "deep_path");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      "module.exports = {foo: {bar:{baz: ()=>'hello'}}}"
+    );
+    const response = processJScript(folder, "index.js");
+    it("should have an API get for '/foo'", () =>
+      assert.include(response.index, "app.get('/foo/bar/baz'"));
+    it("should make call to __API.foo", () =>
+      assert.include(response.index, "__API.foo.bar.baz()"));
+    it("should properly parse resulting JS", () =>
+      assert.doesNotThrow(() => parseScript(response.index)));
+  });
+  describe("external object", () => {
+    const folder = path.join(dir, "external_obj");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      `function baz(){return 1;}
+      const foo = {
+        bar:{
+          baz
+        }
+      }
+      module.exports = {nip: foo}`
+    );
+    const response = processJScript(folder, "index.js");
+    it("should have an API get for '/nip/bar/baz'", () =>
+      assert.include(response.index, "app.get('/nip/bar/baz'"));
+    it("should make call to __API.foo", () =>
+      assert.include(response.index, "__API.nip.bar.baz()"));
+    it("should properly parse resulting JS", () =>
+      assert.doesNotThrow(() => parseScript(response.index)));
+  });
+  after(() => del(dir));
 });

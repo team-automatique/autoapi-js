@@ -15,8 +15,6 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import buildJSExpress from "./src/generateExpress";
-import buildTSExpress, {
-  getAllTopLevelFunctions as getTSTopLevelFunctions,
-} from "./src/processTScript";
-export { buildTSExpress, buildJSExpress, getTSTopLevelFunctions };
+import buildJSExpress from "./src/processJScript";
+import buildTSExpress from "./src/processTScript";
+export { buildTSExpress, buildJSExpress };
