@@ -25,6 +25,20 @@ describe("process TypeScript", () => {
     it("should throw an exception when nothing is exported", () =>
       assert.throws(() => buildTSExpress(folder, "index.ts")));
   });
+  describe("receiving a promise", () => {
+    const program = `async function doSomething(foo: Promise<string>)
+    {return await foo;}
+    export default {doSomething}`;
+    const folder = path.join(dir, "no_promise");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, "index.ts"), program);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    it("should throw an exception one param is a promise", () =>
+      assert.throws(() => buildTSExpress(folder, "index.ts")));
+  });
   describe("build 1 function express server", () => {
     const program = `console.log('hello world');
     function foo(){return 1;}
@@ -70,9 +84,9 @@ describe("process TypeScript", () => {
     );
     const result = buildTSExpress(infolder, "index.ts");
     it("should have an api post request", () =>
-      assert.include(result.index, "app.post('/odd', (req, res) => "));
-    it("should have the a check that body.odd exists", () =>
-      assert.include(result.index, "!body.x"));
+      assert.include(result.index, "app.get('/odd', (req, res) => "));
+    it("should have the a check that param x exists", () =>
+      assert.include(result.index, "if (!x)"));
     it("should have app.listen", () =>
       assert.include(result.index, "app.listen("));
   });
@@ -102,12 +116,12 @@ describe("process TypeScript", () => {
       JSON.stringify(packageJSON())
     );
     const result = buildTSExpress(folder, "index.ts");
-    it("should have an api post request", () =>
-      assert.include(result.index, "app.post("));
+    it("should have an api get request", () =>
+      assert.include(result.index, "app.get("));
     it("should have path /math/square", () =>
-      assert.include(result.index, "app.post('/math/square'"));
+      assert.include(result.index, "app.get('/math/square'"));
     it("should have path /math/cube", () =>
-      assert.include(result.index, "app.post('/math/cube'"));
+      assert.include(result.index, "app.get('/math/cube'"));
     it("should have deep greeting", () =>
       assert.include(result.index, "app.get('/hello/darkness/my/old/friend'"));
   });

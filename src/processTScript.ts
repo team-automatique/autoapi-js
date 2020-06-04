@@ -105,67 +105,80 @@ function convertFuncToRoute(
   path: string,
   checker: ts.TypeChecker
 ): string {
-  const c = checker.typeToTypeNode(checker.getTypeAtLocation(func));
   const rtValues = checker
     .getTypeAtLocation(func)
     .getCallSignatures()[0]
     .getReturnType();
-  let rtypes = [];
-  if (rtValues.isUnionOrIntersection())
-    rtypes = rtValues.types.map((t) => checker.typeToString(t));
-  else rtypes = [checker.typeToString(rtValues)];
+  const rtypes = rtValues.isUnionOrIntersection()
+    ? rtValues.types.map((t) => checker.typeToString(t))
+    : [checker.typeToString(rtValues)];
   const hasPromise = rtypes.filter((f) => f.match(/^Promise<.*>$/)).length > 0;
   let response = "";
   let method: "post" | "get" = "post";
-  if (func.parameters.length === 0) {
-    // Perform a GET request
+  const params = func.parameters.map((param) => {
+    const ptypeRaw = checker.getTypeAtLocation(param);
+    const types = ptypeRaw.isUnionOrIntersection()
+      ? ptypeRaw.types.map((t) => checker.typeToString(t))
+      : [checker.typeToString(ptypeRaw)];
+    types.forEach((t) => {
+      if (t.match(/^Promise<.*>$/))
+        throw new Error("Cannot accept a promise as the input to an API");
+    });
+    return {
+      required: !param.questionToken && !param.initializer,
+      name: param.name.getText(),
+      types,
+      inlineable: types.every((t) => t.match("number") || t.match("string")),
+      inlined: false,
+    };
+  });
+  // Perform a GET request
+  if (params.length < 2 && params.every((p) => p.inlineable)) {
     method = "get";
-    response = `app.get('${path}', (req, res) => {
-      const response = ${funcAlias}();
-      ${
-        hasPromise
-          ? `if(isPromise(response) 
-      response.then(r => res.send(r)); 
-      else res.send(response);"`
-          : "res.send(response);"
-      }
-      })`;
-  } else {
-    method = "post";
-    const requestParams = func.parameters
-      .map((f) => `body.${f.name.getText()}`)
-      .join(", ");
-    const typeAssertions = func.parameters
-      .filter((f) => !f.questionToken && !f.initializer)
-      .map((f) => {
-        const paramType = checker.typeToString(checker.getTypeAtLocation(f));
-        return `if(!body.${f.name.getText()})
-          {
-            res.status(400)
-                .send(
-                  { error: "Missing required parameter ${f.name.getText()}"}
-                  );
-            return;
-          }`;
-      });
-    response = `app.post('${path}', (req, res) => {
-      const body = req.body;
-      // Assert that required incoming arguments are all present
-      ${typeAssertions.join("\n")}
-      const response = ${funcAlias}(${requestParams});
-      ${
-        hasPromise
-          ? `if(isPromise(response)){
-        response.then(r => res.send(r));
-      }else{
-        res.send(response);
-      }`
-          : "res.send(response);"
-      }
-    });`;
+    params.forEach((p) => (p.inlined = true));
   }
+  response += `app.${method}('${path}', (req, res) => {`;
+  // Build local variables and check for existance
+  response += params
+    .map((p) => {
+      let variable = `const ${p.name}: any = ${
+        p.inlined ? "req.query" : "req.body"
+      }.${p.name};\n`;
+      if (p.required) {
+        variable += `if(!${p.name}){
+        res.status(400).send({error: "Missing parameter ${p.name}"});
+        return;}\n`;
+      }
+      return variable;
+    })
+    .join("\n");
+  // Execute function
+  let body = `const response = ${funcAlias}(${params
+    .map((p) => p.name)
+    .join(", ")});\n`;
+  if (hasPromise) {
+    body += `if(isPromise(response))
+       response.then(r => res.send(r))
+              .catch(e => res.status(500).send({
+                  error: process.env.DEBUG == "true" ?
+                    e.stack : 'An error occurred'})); 
+      else res.send(response);`;
+  } else {
+    body += "res.send(response);";
+  }
+  body =
+    "try{ " +
+    body +
+    `} catch(e){ if(process.env.DEBUG == "true")
+      res.status(500).send({error: e.stack});
+     else res.status(500).send({error: 'An unknown error occurred'});}`;
+  response += body;
+  response += "});";
   // Generate API documentation
-  return generateJSDoc(path, method, func.parameters, checker) + response;
+  return (
+    generateJSDoc(path, method, func.parameters, checker, (<any>func).jsDoc) +
+    response
+  );
 }
 
 function buildTSProgram(
