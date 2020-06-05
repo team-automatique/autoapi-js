@@ -4,16 +4,19 @@ import assert from "assert";
 import { getHeader } from "./shared";
 import fs from "fs";
 import path from "path";
+import { packageJSON } from "./types";
 /** buildProgram
  *
  * @param {string} root the root directory to an existing workspace
  * @param {string} file the file which to parse
+ * @param {boolean} js a boolean whether or not the funcions are in JavaScript
  * @return {ts.Program} an in-memory, type-checked TypeScript program
  */
 export function buildProgram(
   root: string,
-  file: string
-): { program: ts.Program; root: string } {
+  file: string,
+  js: boolean
+): ts.Program {
   if (!fs.existsSync(root)) {
     throw new Error(`Unable to find provided directory ${root}`);
   }
@@ -21,6 +24,8 @@ export function buildProgram(
     throw new Error(`No such file ${file} found in provided directory`);
   }
   const options = ts.getDefaultCompilerOptions();
+  options.allowJs = js;
+  options.outDir = "__api";
   const host = ts.createCompilerHost(options, true);
   const program = ts.createProgram([path.join(root, file)], options, host);
   // Check to ensure that valid TypeScript is passed into the program
@@ -31,22 +36,7 @@ export function buildProgram(
         diagnostics.map((m) => m.messageText).join("\n")
     );
   }
-  return { program, root };
-}
-
-interface packageJSON {
-  name: string;
-  version: string;
-  description: string;
-  main: "dist/index.js";
-  scripts: {
-    prepare: "tsc";
-    test: 'echo "Error: no test specified" && exit 1';
-  };
-  author: string;
-  license: string;
-  dependencies: { [propName: string]: string };
-  devDependencies: { [propName: string]: string };
+  return program;
 }
 
 function generateTsconfig() {
@@ -213,23 +203,6 @@ function convertFuncToRoute(
   };
 }
 
-function buildTSProgram(
-  root: string,
-  file: string
-): {
-  program: ts.Program;
-  packageJSON: packageJSON;
-} {
-  if (!fs.existsSync(path.join(root, "package.json"))) {
-    throw new Error("Unable to find a package.json in the root directory");
-  }
-  const packageJSON = JSON.parse(
-    fs.readFileSync(path.join(root, "package.json")).toString()
-  );
-  const { program } = buildProgram(root, file);
-  return { program, packageJSON };
-}
-
 interface exportMap {
   [key: string]:
     | { type: "exports"; exports: exportMap }
@@ -325,20 +298,51 @@ function buildRoutes(
   return { code, routes };
 }
 
-export default function buildTSExpress(
+interface buildOptions {
+  language: "TypeScript" | "JavaScript";
+  newSource?: string;
+}
+
+export default function buildExpress(
   root: string,
   file: string,
-  newSource: string = file
+  options: buildOptions
 ) {
-  const { program, packageJSON } = buildTSProgram(root, file);
+  options.newSource = options.newSource || file;
+  // Assert the package.json exists
+  if (!fs.existsSync(path.join(root, "package.json"))) {
+    throw new Error("No package.json found in provided directory");
+  }
+  const packageJSON: packageJSON = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json")).toString()
+  ); // Build program
+  const program = buildProgram(root, file, options.language === "JavaScript");
   const typeChecker = program.getTypeChecker();
   const sourceFile = program.getSourceFile(path.join(root, file));
   assert(sourceFile);
+
+  // Grab exports (export default)
   let exports: exportMap = {};
   let foundExports = false;
   sourceFile.forEachChild((c) => {
     if (ts.isExportAssignment(c)) {
+      if (foundExports)
+        throw new Error("Multiple default export declarations found");
       exports = grabExports(c, typeChecker, "");
+      foundExports = true;
+    }
+    if (
+      ts.isExpressionStatement(c) &&
+      ts.isBinaryExpression(c.expression) &&
+      ts.isPropertyAccessExpression(c.expression.left) &&
+      ts.isIdentifier(c.expression.left.expression) &&
+      ts.isIdentifier(c.expression.left.name) &&
+      c.expression.left.expression.text === "module" &&
+      c.expression.left.name.text === "exports"
+    ) {
+      if (foundExports)
+        throw new Error("Multiple default export declarations found");
+      exports = grabExports(c.expression.right, typeChecker, "");
       foundExports = true;
     }
   });
@@ -348,41 +352,65 @@ export default function buildTSExpress(
 Functions must be exported in order to build an API`
     );
   }
+
+  // Parse out and build routes
   const base = exports[""];
   const routes =
     base.type === "exports"
       ? buildRoutes(base.exports, "", typeChecker)
       : buildRoutes(exports, "", typeChecker);
+
+  // Add dependencies for express
   packageJSON.dependencies = {
     "body-parser": "latest",
     express: "~4",
-    "@types/express": "~4",
     "is-promise": "^4",
     ...packageJSON.dependencies,
   };
-  packageJSON.devDependencies = {
-    typescript: "latest",
-    ...packageJSON.devDependencies,
-  };
+  // Add package depedencies if being compiled to TypeScript
+  if (options.language == "TypeScript") {
+    packageJSON.dependencies = {
+      "@types/express": "~4",
+      ...packageJSON.dependencies,
+    };
+    packageJSON.devDependencies = {
+      typescript: "latest",
+      ...packageJSON.devDependencies,
+    };
+  }
   let response = getHeader();
-  response += `import __API from './${newSource.substring(
-    0,
-    newSource.lastIndexOf(".")
-  )}'\n`;
-  response += "// Setup server to send API routes\n";
-  response += 'import express from "express";\n';
-  response += "import isPromise from 'is-promise';\n";
-  response += "import bodyParser from 'body-parser'\n";
+
+  // Differentiate imports when building for TypeScript or JavaScript
+  if (options.language === "TypeScript") {
+    response += `import __API from './${options.newSource.substring(
+      0,
+      options.newSource.lastIndexOf(".")
+    )}'\n`;
+    response += 'import express from "express";\n';
+    response += "import isPromise from 'is-promise';\n";
+    response += "import bodyParser from 'body-parser'\n";
+  } else {
+    // Use commonjs imports for JavaScript
+    response += `const __API = require("./${options.newSource.substring(
+      0,
+      options.newSource.lastIndexOf(".")
+    )}");\n`;
+    response += 'const express = require("express");\n';
+    response += 'const isPromise = require("is-promise");\n';
+    response += 'const bodyParser = require("body-parser");\n';
+  }
+
   response += "const app = express();\n";
   response += "app.use(bodyParser.json());\n\n";
   response += routes.code;
   // Add action to listen on local host
   response +=
     "\napp.listen(3000, () => console.log('API listening at http://localhost:3000'));";
+  const tsConfig = options.language === "TypeScript" ? generateTsconfig() : {};
   return {
     index: beautify(response),
     packageJSON,
-    tsConfig: generateTsconfig(),
+    tsConfig,
     routeData: routes.routes,
   };
 }

@@ -2,8 +2,7 @@
 import "mocha";
 import { assert } from "chai";
 
-import { buildProgram } from "../src/processTScript";
-import { buildTSExpress } from "../index";
+import { buildExpress } from "../index";
 import { packageJSON } from "./utils";
 import fs from "fs";
 import del from "del";
@@ -23,7 +22,9 @@ describe("process TypeScript", () => {
       JSON.stringify(packageJSON())
     );
     it("should throw an exception when nothing is exported", () =>
-      assert.throws(() => buildTSExpress(folder, "index.ts")));
+      assert.throws(() =>
+        buildExpress(folder, "index.ts", { language: "TypeScript" })
+      ));
   });
   describe("receiving a promise", () => {
     const program = `async function doSomething(foo: Promise<string>)
@@ -37,7 +38,9 @@ describe("process TypeScript", () => {
       JSON.stringify(packageJSON())
     );
     it("should throw an exception one param is a promise", () =>
-      assert.throws(() => buildTSExpress(folder, "index.ts")));
+      assert.throws(() =>
+        buildExpress(folder, "index.ts", { language: "TypeScript" })
+      ));
   });
   describe("build 1 function express server", () => {
     const program = `console.log('hello world');
@@ -50,7 +53,7 @@ describe("process TypeScript", () => {
       path.join(folder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(folder, "index.ts");
+    const result = buildExpress(folder, "index.ts", { language: "TypeScript" });
     it("should declare 'express' as a requirement", () =>
       assert("express" in result.packageJSON.dependencies));
     it("should declare 'typescript' as a devDependency", () =>
@@ -78,7 +81,9 @@ describe("process TypeScript", () => {
       path.join(infolder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(infolder, "index.ts");
+    const result = buildExpress(infolder, "index.ts", {
+      language: "TypeScript",
+    });
     it("should have an api post request", () =>
       assert.include(result.index, "app.get('/odd', (req, res) => "));
     it("should have the a check that param x exists", () =>
@@ -111,7 +116,7 @@ describe("process TypeScript", () => {
       path.join(folder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(folder, "index.ts");
+    const result = buildExpress(folder, "index.ts", { language: "TypeScript" });
     it("should have an api get request", () =>
       assert.include(result.index, "app.get("));
     it("should have path /math/square", () =>

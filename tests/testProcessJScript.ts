@@ -1,8 +1,7 @@
 import { assert } from "chai";
 import "mocha";
 import { parseScript } from "esprima";
-import { buildJSExpress } from "../index";
-import processJScript from "../src/processJScript";
+import { buildExpress } from "../index";
 import fs from "fs";
 import path from "path";
 import del from "del";
@@ -15,16 +14,22 @@ describe("processJScript", () => {
   describe("missing files", () => {
     const folder = path.join(dir, "missing_files");
     it("should throw an exception when folder is missing", () =>
-      assert.throws(() => processJScript(folder, "index.js")));
+      assert.throws(() =>
+        buildExpress(folder, "index.js", { language: "JavaScript" })
+      ));
     fs.mkdirSync(folder);
     it("should throw an exception when file is missing", () =>
-      assert.throws(() => processJScript(folder, "index.js")));
+      assert.throws(() =>
+        buildExpress(folder, "index.js", { language: "JavaScript" })
+      ));
     fs.writeFileSync(
       path.join(folder, "index.js"),
       "module.exports = {foo: ()=>'hi'}"
     );
     it("should throw an exception when package.json is missing", () =>
-      assert.throws(() => processJScript(folder, "index.js")));
+      assert.throws(() =>
+        buildExpress(folder, "index.js", { language: "JavaScript" })
+      ));
   });
   describe("handle malformed javascript", () => {
     const folder = path.join(dir, "malformed");
@@ -35,7 +40,9 @@ describe("processJScript", () => {
       JSON.stringify(packageJSON())
     );
     it("should throw an exception", () =>
-      assert.throws(() => processJScript(folder, "index.js")));
+      assert.throws(() =>
+        buildExpress(folder, "index.js", { language: "JavaScript" })
+      ));
   });
   describe("no export", () => {
     const folder = path.join(dir, "no_export");
@@ -49,7 +56,9 @@ describe("processJScript", () => {
       "function f() {console.log('hello')}"
     );
     it("should throw an exception when no exports are present", () =>
-      assert.throws(() => processJScript(folder, "index.js")));
+      assert.throws(() =>
+        buildExpress(folder, "index.js", { language: "JavaScript" })
+      ));
   });
   describe("multiple exports", () => {
     const folder = path.join(dir, "multiple_exports");
@@ -65,7 +74,9 @@ describe("processJScript", () => {
       module.exports = {foo: f}`
     );
     it("should throw an exception when more than 1 export are present", () =>
-      assert.throws(() => processJScript(folder, "index.js")));
+      assert.throws(() =>
+        buildExpress(folder, "index.js", { language: "JavaScript" })
+      ));
   });
 
   describe("file with single func exported", () => {
@@ -80,14 +91,15 @@ describe("processJScript", () => {
       `function f() {return "foo"};
       module.exports = {foo: f}`
     );
-    const response = processJScript(folder, "index.js");
+    const response = buildExpress(folder, "index.js", {
+      language: "JavaScript",
+    });
     it("should have an API get request for '/foo'", () =>
       assert.include(response.index, "app.get('/foo'"));
     it("should make a call to __API.foo", () =>
       assert.include(response.index, "__API.foo()"));
-    const foundJSON = JSON.parse(response.packageJSON);
     it("should have express, is-promise and body-parser as dependencies", () =>
-      assert.hasAllKeys(foundJSON.dependencies, [
+      assert.hasAllKeys(response.packageJSON.dependencies, [
         "express",
         "is-promise",
         "body-parser",
@@ -106,7 +118,9 @@ describe("processJScript", () => {
       path.join(folder, "index.js"),
       "module.exports = {foo: ()=> 'Hello world'}"
     );
-    const response = processJScript(folder, "index.js");
+    const response = buildExpress(folder, "index.js", {
+      language: "JavaScript",
+    });
     it("should have an API get for '/foo'", () =>
       assert.include(response.index, "app.get('/foo'"));
     it("should make call to __API.foo", () =>
@@ -126,7 +140,9 @@ describe("processJScript", () => {
       "module.exports = {foo: 5}"
     );
     it("should throw an exception when trying to export a constant", () =>
-      assert.throws(() => processJScript(folder, "index.js")));
+      assert.throws(() =>
+        buildExpress(folder, "index.js", { language: "JavaScript" })
+      ));
   });
   describe("deep path", () => {
     const folder = path.join(dir, "deep_path");
@@ -139,7 +155,9 @@ describe("processJScript", () => {
       path.join(folder, "index.js"),
       "module.exports = {foo: {bar:{baz: ()=>'hello'}}}"
     );
-    const response = processJScript(folder, "index.js");
+    const response = buildExpress(folder, "index.js", {
+      language: "JavaScript",
+    });
     it("should have an API get for '/foo'", () =>
       assert.include(response.index, "app.get('/foo/bar/baz'"));
     it("should make call to __API.foo", () =>
@@ -164,7 +182,9 @@ describe("processJScript", () => {
       }
       module.exports = {nip: foo}`
     );
-    const response = processJScript(folder, "index.js");
+    const response = buildExpress(folder, "index.js", {
+      language: "JavaScript",
+    });
     it("should have an API get for '/nip/bar/baz'", () =>
       assert.include(response.index, "app.get('/nip/bar/baz'"));
     it("should make call to __API.foo", () =>
