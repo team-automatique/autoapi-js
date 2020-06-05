@@ -1,10 +1,17 @@
 import ts from "typescript";
 import { js as beautify } from "js-beautify";
 import assert from "assert";
-import { getHeader } from "./shared";
+import { getHeader, generateTSConfig } from "./utils";
 import fs from "fs";
 import path from "path";
-import { packageJSON } from "./types";
+import {
+  packageJSON,
+  DocString,
+  DocPart,
+  RouteData,
+  BuildOptions,
+  MultiRoute,
+} from "./types";
 /** buildProgram
  *
  * @param {string} root the root directory to an existing workspace
@@ -39,62 +46,86 @@ export function buildProgram(
   return program;
 }
 
-function generateTsconfig() {
-  return {
-    compilerOptions: {
-      lib: [
-        "ES2016",
-        "DOM",
-      ] /* Specify library files to be included in the compilation. */,
-      declaration: true /* Generates corresponding '.d.ts' file. */,
-      sourceMap: true /* Generates corresponding '.map' file. */,
-      outDir: "./dist" /* Redirect output structure to the directory. */,
-      strict: true /* Enable all strict type-checking options. */,
-      moduleResolution: "node",
-      esModuleInterop: true,
-      skipLibCheck: true,
-      forceConsistentCasingInFileNames: true,
-    },
-  };
-}
-
 function generateJSDoc(
   path: string,
   method: "post" | "get",
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  returnType: string[],
   checker: ts.TypeChecker,
-  doc?: ts.JSDoc
-): string {
-  const params = parameters.map(
-    (f) =>
-      ` * @apiParam {${checker.typeToString(
-        checker.getTypeAtLocation(f)
-      )}} ${f.name.getText()}`
-  );
-  return `/**
+  docs?: ts.JSDoc[]
+): { code: string; data: DocString } {
+  let docData: DocString;
+  if (docs && docs.length > 0) {
+    const doc = docs[0];
+    docData = {
+      comment: doc.comment || "",
+      args:
+        doc.tags
+          ?.map((m) => {
+            if (ts.isJSDocParameterTag(m)) {
+              return {
+                id: m.name.getText(),
+                comment: m.comment || "",
+                type: m.typeExpression?.type.getText() || "",
+              };
+            }
+            return null;
+          })
+          .filter((f): f is DocPart => f !== null) || [],
+      return: doc.tags
+        ?.map((m) => {
+          if (ts.isJSDocReturnTag(m)) {
+            return {
+              id: "",
+              comment: m.comment || "",
+              type: m.typeExpression?.getText(),
+            };
+          }
+        })
+        .filter((f): f is DocPart => f !== null)[0] || {
+        comment: "",
+        id: "",
+        type: "",
+      },
+    };
+  } else {
+    docData = {
+      comment: "",
+      args: [],
+      return: { comment: "", id: "", type: "" },
+    };
+  }
+  parameters.forEach((f) => {
+    const existing = docData.args.filter((d) => d.id === f.name.getText());
+    if (existing.length === 0) {
+      // Don't override the interpreted type
+      docData.args.push({
+        id: f.name.getText(),
+        comment: "",
+        type: checker.typeToString(checker.getTypeAtLocation(f)),
+      });
+    }
+  });
+  if (docData.return.type === "") {
+    docData.return.type = returnType.join(" || ");
+  }
+  let params = docData.args
+    .map((m) => ` * @apiParam {${m.type}} ${m.id} ${m.comment}`)
+    .join("\n");
+  if (params.length > 0) {
+    params = "\n" + params;
+  }
+  const ret = docData.return;
+  const returnValue = ` * @apiReturn {${ret.type}} ${ret.comment}`;
+  const code = `/**
  * @api {${method}} ${path}
- *
-${params.join("\n")}
- * 
+ * ${docData.comment.replace("\n", "\n * ")}
+ * ${params}
+${returnValue}
  */\n`;
+  return { code, data: docData };
 }
 
-interface routeData {
-  type: "func";
-  doc: string;
-  params: { id: string; optional: boolean; inline: boolean; type: any }[];
-  method: "get" | "post";
-  path: string;
-  returnType: string[];
-}
-interface multiRoute {
-  [propName: string]:
-    | {
-        type: "export";
-        export: multiRoute;
-      }
-    | routeData;
-}
 /** convertFuncToRoute - Turn a ts.FunctionDeclaration into a string snippet
  * The resulting string from this function is an API route (for an express
  * server) which calls the function in question. It also performs some checking
@@ -111,7 +142,7 @@ function convertFuncToRoute(
   funcAlias: string,
   path: string,
   checker: ts.TypeChecker
-): { code: string; route: routeData } {
+): { code: string; route: RouteData } {
   const rtValues = checker
     .getTypeAtLocation(func)
     .getCallSignatures()[0]
@@ -182,17 +213,27 @@ function convertFuncToRoute(
   response += body;
   response += "});";
   // Generate API documentation
-  const code =
-    generateJSDoc(path, method, func.parameters, checker, (<any>func).jsDoc) +
-    response;
+  const doc = generateJSDoc(
+    path,
+    method,
+    func.parameters,
+    rtypes.map((t) =>
+      t.match(/^Promise<.*>$/) ? t.slice(8, t.length - 1) : t
+    ),
+    checker,
+    (<any>func).jsDoc
+  );
+
   return {
-    code,
+    code: doc.code + response,
     route: {
       type: "func",
-      doc: (<any>func).jsDoc || "",
+      doc: doc.data,
       method,
       path,
-      returnType: rtypes,
+      returnType: rtypes.map((t) =>
+        t.match(/^Promise<.*>$/) ? t.slice(8, t.length - 1) : t
+      ),
       params: params.map((p) => ({
         id: p.id,
         inline: p.inline,
@@ -270,9 +311,9 @@ function buildRoutes(
   exports: exportMap,
   basePath: string,
   checker: ts.TypeChecker
-): { code: string; routes: multiRoute } {
+): { code: string; routes: MultiRoute } {
   let code = "";
-  const routes: multiRoute = {};
+  const routes: MultiRoute = {};
   Object.keys(exports).forEach((key) => {
     const exp = exports[key];
     if (exp.type === "exports") {
@@ -298,15 +339,10 @@ function buildRoutes(
   return { code, routes };
 }
 
-interface buildOptions {
-  language: "TypeScript" | "JavaScript";
-  newSource?: string;
-}
-
 export default function buildExpress(
   root: string,
   file: string,
-  options: buildOptions
+  options: BuildOptions
 ) {
   options.newSource = options.newSource || file;
   // Assert the package.json exists
@@ -332,6 +368,7 @@ export default function buildExpress(
       foundExports = true;
     }
     if (
+      options.language === "JavaScript" &&
       ts.isExpressionStatement(c) &&
       ts.isBinaryExpression(c.expression) &&
       ts.isPropertyAccessExpression(c.expression.left) &&
@@ -382,13 +419,13 @@ Functions must be exported in order to build an API`
 
   // Differentiate imports when building for TypeScript or JavaScript
   if (options.language === "TypeScript") {
-    response += `import __API from './${options.newSource.substring(
+    response += `import __API from "./${options.newSource.substring(
       0,
       options.newSource.lastIndexOf(".")
-    )}'\n`;
+    )}"\n`;
     response += 'import express from "express";\n';
-    response += "import isPromise from 'is-promise';\n";
-    response += "import bodyParser from 'body-parser'\n";
+    response += 'import isPromise from "is-promise";\n';
+    response += 'import bodyParser from "body-parser"\n';
   } else {
     // Use commonjs imports for JavaScript
     response += `const __API = require("./${options.newSource.substring(
@@ -404,9 +441,9 @@ Functions must be exported in order to build an API`
   response += "app.use(bodyParser.json());\n\n";
   response += routes.code;
   // Add action to listen on local host
-  response +=
-    "\napp.listen(3000, () => console.log('API listening at http://localhost:3000'));";
-  const tsConfig = options.language === "TypeScript" ? generateTsconfig() : {};
+  const port = options.port || 3000;
+  response += `\napp.listen(${port}, () => console.log('API listening at http://localhost:${port}'));`;
+  const tsConfig = options.language === "TypeScript" ? generateTSConfig() : {};
   return {
     index: beautify(response),
     packageJSON,

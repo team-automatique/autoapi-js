@@ -41,7 +41,7 @@ buildExpress(
   // Main file
   "index.ts",
   // Options
-  { newSource: "app.ts", language: "TypeScript" }
+  { newSource: "app.ts", language: "TypeScript", port: 5000 }
 );
 ```
 

@@ -13,3 +13,37 @@ export interface packageJSON {
   devDependencies: { [propName: string]: string };
   [propName: string]: any;
 }
+
+export interface BuildOptions {
+  language: "TypeScript" | "JavaScript";
+  newSource?: string;
+  port?: number;
+}
+
+export interface RouteData {
+  type: "func";
+  doc: DocString;
+  params: { id: string; optional: boolean; inline: boolean; type: any }[];
+  method: "get" | "post";
+  path: string;
+  returnType: string[];
+}
+export interface MultiRoute {
+  [propName: string]:
+    | {
+        type: "export";
+        export: MultiRoute;
+      }
+    | RouteData;
+}
+
+export interface DocPart {
+  id: string;
+  comment: string;
+  type: string;
+}
+export interface DocString {
+  comment: string;
+  args: DocPart[];
+  return: DocPart;
+}
