@@ -92,9 +92,10 @@ ${params.join("\n")}
 interface routeData {
   type: "func";
   doc: string;
-  params: { id: string }[];
+  params: { id: string; optional: boolean; inline: boolean; type: any }[];
   method: "get" | "post";
   path: string;
+  returnType: string[];
 }
 interface multiRoute {
   [propName: string]:
@@ -141,7 +142,7 @@ function convertFuncToRoute(
         throw new Error("Cannot accept a promise as the input to an API");
     });
     return {
-      optional: param.questionToken || param.initializer,
+      optional: !!param.questionToken || !!param.initializer,
       id: param.name.getText(),
       types,
       inlineable: types.every((t) => t.match("number") || t.match("string")),
@@ -174,13 +175,13 @@ function convertFuncToRoute(
     .join(", ")});\n`;
   if (hasPromise) {
     body += `if(isPromise(response))
-       response.then(r => res.send(r))
+       response.then(r => res.send({response:r}))
               .catch(e => res.status(500).send({
                   error: process.env.DEBUG == "true" ?
                     e.stack : 'An error occurred'})); 
-      else res.send(response);`;
+      else res.send({response});`;
   } else {
-    body += "res.send(response);";
+    body += "res.send({response});";
   }
   body =
     "try{ " +
@@ -201,6 +202,7 @@ function convertFuncToRoute(
       doc: (<any>func).jsDoc || "",
       method,
       path,
+      returnType: rtypes,
       params: params.map((p) => ({
         id: p.id,
         inline: p.inline,

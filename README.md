@@ -46,8 +46,9 @@ buildTSExpress(
 ```
 
 The above returns an object with three attributes, "index", the text of an index.ts script,
-"packageJSON", a package.json file, and "tsConfig", a valid typescript config. Additionally,
-it returns "routeData", which provides a summary of the generated API
+"packageJSON", a JSON object representing a package.json file, and "tsConfig",
+a valid typescript config JSON object. Additionally, it returns "routeData", which provides
+a summary of the generated API
 
 #### Hello Automatique: JavaScript
 
