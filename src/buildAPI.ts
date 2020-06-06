@@ -151,7 +151,6 @@ function convertFuncToRoute(
     ? rtValues.types.map((t) => checker.typeToString(t))
     : [checker.typeToString(rtValues)];
   const hasPromise = rtypes.filter((f) => f.match(/^Promise<.*>$/)).length > 0;
-  let response = "";
   let method: "post" | "get" = "post";
   const params = func.parameters.map((param) => {
     const ptypeRaw = checker.getTypeAtLocation(param);
@@ -175,7 +174,9 @@ function convertFuncToRoute(
     method = "get";
     params.forEach((p) => (p.inline = true));
   }
-  response += `app.${method}('${path}', (req, res) => {`;
+
+  let response = `app.${method}('${path}', (req, res) => {\n`;
+  response += `process.stdout.write(\`\${new Date().toISOString()} [${method}] \${req.path}\`);`;
   // Build local variables and check for existance
   response += params
     .map((p) => {
@@ -185,6 +186,7 @@ function convertFuncToRoute(
       if (!p.optional) {
         variable += `if(!${p.id}){
         res.status(400).send({error: "Missing parameter ${p.id}"});
+        process.stdout.write(" - 400\\n");
         return;}\n`;
       }
       return variable;
@@ -196,11 +198,20 @@ function convertFuncToRoute(
     .join(", ")});\n`;
   if (hasPromise) {
     body += `if(isPromise(response))
-       response.then(r => res.send({response:r}))
-              .catch(e => res.status(500).send({
-                  error: process.env.DEBUG == "true" ?
-                    e.stack : 'An error occurred'})); 
-      else res.send({response});`;
+       response.then(r => {
+          res.send({response:r};
+          process.stdout.write(" - 200\\n");
+         }))
+              .catch(e => {
+                    res.status(500).send({
+                      error: process.env.DEBUG == "true" ?
+                        e.stack : 'An error occurred'}));
+                    process.stdout.write(" - 500\\n"); 
+                } 
+      else{
+        res.send({response});
+        process.stdout.write(" - 200\\n");
+      }`;
   } else {
     body += "res.send({response});";
   }
@@ -209,9 +220,11 @@ function convertFuncToRoute(
     body +
     `} catch(e){ if(process.env.DEBUG == "true")
       res.status(500).send({error: e.stack});
-     else res.status(500).send({error: 'An unknown error occurred'});}`;
+     else res.status(500).send({error: 'An unknown error occurred'});
+    process.stdout.write(" - 500\\n"); }`;
   response += body;
   response += "});";
+
   // Generate API documentation
   const doc = generateJSDoc(
     path,
