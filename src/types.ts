@@ -37,15 +37,10 @@ export interface MultiRoute {
     | RouteData;
 }
 
-export interface DocPart {
-  id: string;
-  comment: string;
-  type: string;
-}
 export interface DocString {
   comment: string;
-  args: DocPart[];
-  return: FullType;
+  params: { [propName: string]: { comment: string; type: FullType } };
+  return: { type: FullType; comment: string };
 }
 
 export interface BaseType {

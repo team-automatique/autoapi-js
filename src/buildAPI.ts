@@ -7,7 +7,6 @@ import path from "path";
 import {
   packageJSON,
   DocString,
-  DocPart,
   RouteData,
   BuildOptions,
   MultiRoute,
@@ -50,64 +49,49 @@ export function buildProgram(
 function generateJSDoc(
   path: string,
   method: "post" | "get",
-  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  parameters: { id: string; type: FullType }[],
   returnType: FullType,
   checker: ts.TypeChecker,
   docs?: ts.JSDoc[]
 ): { code: string; data: DocString } {
-  let docData: DocString;
+  const params: { [prop: string]: { type: FullType; comment: string } } = {};
+  parameters.forEach((p) => (params[p.id] = { comment: "", type: p.type }));
+  const response = {
+    comment: "",
+    params,
+    return: { comment: "", type: returnType },
+  };
+  // Enrich with doc info from jsdoc
   if (docs && docs.length > 0) {
     const doc = docs[0];
-    docData = {
-      comment: doc.comment || "",
-      args:
-        doc.tags
-          ?.map((m) => {
-            if (ts.isJSDocParameterTag(m)) {
-              return {
-                id: m.name.getText(),
-                comment: m.comment || "",
-                type: m.typeExpression?.type.getText() || "",
-              };
-            }
-            return null;
-          })
-          .filter((f): f is DocPart => f !== null) || [],
-      return: returnType,
-    };
-  } else {
-    docData = {
-      comment: "",
-      args: [],
-      return: returnType,
-    };
+    response.comment = doc.comment || "";
+    doc.tags?.forEach((t) => {
+      if (ts.isJSDocParameterTag(t) && t.name.getText() in response.params) {
+        response.params[t.name.getText()].comment = t.comment || "";
+      }
+      if (ts.isJSDocReturnTag(t)) {
+        response.return.comment = t.comment || "";
+      }
+    });
   }
-  parameters.forEach((f) => {
-    const existing = docData.args.filter((d) => d.id === f.name.getText());
-    if (existing.length === 0) {
-      // Don't override the interpreted type
-      docData.args.push({
-        id: f.name.getText(),
-        comment: "",
-        type: checker.typeToString(checker.getTypeAtLocation(f)),
-      });
-    }
-  });
-  let params = docData.args
-    .map((m) => ` * @apiParam {${m.type}} ${m.id} ${m.comment}`)
+  let paramsRaw = Object.keys(response.params)
+    .map((key) => {
+      const m = response.params[key];
+      return ` * @apiParam {${m.type}} ${key} ${m.comment}`;
+    })
     .join("\n");
-  if (params.length > 0) {
-    params = "\n" + params;
+  if (paramsRaw.length > 0) {
+    paramsRaw = "\n" + paramsRaw;
   }
-  const ret = docData.return;
-  const returnValue = ` * @apiReturn {${ret.type}} ${"" /* ret.comment*/}`;
+  const ret = response.return;
+  const returnValue = ` * @apiReturn {${ret.type}} ${ret.comment}`;
   const code = `/**
  * @api {${method}} ${path}
- * ${docData.comment.replace("\n", "\n * ")}
+ * ${response.comment.replace("\n", "\n * ")}
  * ${params}
 ${returnValue}
  */\n`;
-  return { code, data: docData };
+  return { code, data: response };
 }
 
 function decompileType(
@@ -161,7 +145,6 @@ function decompileType(
     return { type: "boolean" };
   }
   if (ts.TypeFlags.Object === type.flags) {
-    console.log(type.symbol.name);
     if (type.symbol.name === "Promise") {
       if (!allowPromise)
         throw new Error(
@@ -230,7 +213,7 @@ function convertFuncToRoute(
       true
     );
   } catch (e) {
-    throw new Error(`Issue with function ${funcAlias}:\n${e}`);
+    throw new Error(`Function ${funcAlias}:\n${e}`);
   }
   // console.log(rtype);
   const hasPromise = !!checker
@@ -240,7 +223,7 @@ function convertFuncToRoute(
     .match(/^Promise<.*>$/);
   let method: "post" | "get" = "post";
   const params = func.parameters.map((param) => {
-    const types = decompileType(
+    const type = decompileType(
       checker.getTypeAtLocation(param),
       checker,
       true, // Union
@@ -249,11 +232,11 @@ function convertFuncToRoute(
     return {
       optional: !!param.questionToken || !!param.initializer,
       id: param.name.getText(),
-      types,
+      type,
       inlineable:
-        types.type === "boolean" ||
-        types.type === "string" ||
-        types.type === "number",
+        type.type === "boolean" ||
+        type.type === "string" ||
+        type.type === "number",
       inline: false,
     };
   });
@@ -313,7 +296,7 @@ function convertFuncToRoute(
   const doc = generateJSDoc(
     path,
     method,
-    func.parameters,
+    params.map((p) => ({ id: p.id, type: p.type })),
     rtype,
     checker,
     (<any>func).jsDoc
@@ -330,7 +313,7 @@ function convertFuncToRoute(
       params: params.map((p) => ({
         id: p.id,
         inline: p.inline,
-        type: p.types,
+        type: p.type,
         optional: p.optional,
       })),
     },
