@@ -125,6 +125,29 @@ describe("process TypeScript", () => {
       assert.include(result.index, "app.get('/math/cube'"));
     it("should have deep greeting", () =>
       assert.include(result.index, "app.get('/hello/darkness/my/old/friend'"));
+    result.routeData;
+    it("should have number as return type for square", () =>
+      assert.isTrue(
+        result.routeData.math.type === "export" &&
+          result.routeData.math.export.square.type === "func" &&
+          result.routeData.math.export.square.return.type === "number"
+      ));
+  });
+  describe("Fail when returning a union", () => {
+    const program = `function lt5(x: number){ if(x<5) return x; return "Not x";}
+    export default { lt5 }`;
+    const folder = path.join(dir, "return_union");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, "index.ts"), program);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    it("should throw an exception", () =>
+      assert.throws(
+        () => buildExpress(folder, "index.ts", { language: "TypeScript" }),
+        /Union types/
+      ));
   });
   after(() => del(dir));
 });

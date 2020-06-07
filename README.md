@@ -148,6 +148,10 @@ There are some changes in the source file that must be made to correctly work
 
 1. URL Paths are case-insensitive, unlike JavaScript/TypeScript identifiers. If you attempt to export 2 functions with the same name, differing by casing (eg foo() and FOO()), undefined behaviour will occur
 
+2. Because of the need to interface with other languages, and work across the network, there are some restrictions on parameter and return types for functions. Return types may not include unions, unless the union can be coerced to a base type. For example, returning type `"foo" | "bar"` is permitted (and will be coerced to type `string`), but returning type `string | 5` is
+   not permitted. Additionally, promises cannot be parameters, and any return may only have a promise at the top level. For example, a function may return `Promise<string>` but cannot return
+   `{foo: string, prom: Promise<string>}`
+
 ### Contributing
 
 `autoapi-js` is an open-source project by Automatique. If you encounter bugs, find problems or just want to contribute features,

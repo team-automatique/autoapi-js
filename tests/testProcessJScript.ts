@@ -103,6 +103,7 @@ describe("processJScript", () => {
         "express",
         "is-promise",
         "body-parser",
+        "morgan",
       ]));
     it("should properly parse resulting JS", () =>
       assert.doesNotThrow(() => parseScript(response.index)));
@@ -189,6 +190,30 @@ describe("processJScript", () => {
       assert.include(response.index, "app.get('/nip/bar/baz'"));
     it("should make call to __API.foo", () =>
       assert.include(response.index, "__API.nip.bar.baz()"));
+    it("should properly parse resulting JS", () =>
+      assert.doesNotThrow(() => parseScript(response.index)));
+  });
+  describe("asynchronous function", () => {
+    const folder = path.join(dir, "async_func");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    fs.writeFileSync(
+      path.join(folder, "index.js"),
+      `async function baz(){return 1;}
+      module.exports = {nip: baz}`
+    );
+    const response = buildExpress(folder, "index.js", {
+      language: "JavaScript",
+    });
+    it("should have an API get for '/nip'", () =>
+      assert.include(response.index, "app.get('/nip'"));
+    it("should make call to __API.nip", () =>
+      assert.include(response.index, "__API.nip()"));
+    it("should have a check for isPromise", () =>
+      assert.include(response.index, "if (isPromise(response))"));
     it("should properly parse resulting JS", () =>
       assert.doesNotThrow(() => parseScript(response.index)));
   });

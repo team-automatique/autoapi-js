@@ -1,6 +1,6 @@
-import ts from "typescript";
+import ts, { TsConfigSourceFile } from "typescript";
 import { js as beautify } from "js-beautify";
-import assert from "assert";
+import assert, { deepStrictEqual } from "assert";
 import { getHeader, generateTSConfig } from "./utils";
 import fs from "fs";
 import path from "path";
@@ -11,6 +11,7 @@ import {
   RouteData,
   BuildOptions,
   MultiRoute,
+  FullType,
 } from "./types";
 /** buildProgram
  *
@@ -50,7 +51,7 @@ function generateJSDoc(
   path: string,
   method: "post" | "get",
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
-  returnType: string[],
+  returnType: FullType,
   checker: ts.TypeChecker,
   docs?: ts.JSDoc[]
 ): { code: string; data: DocString } {
@@ -72,27 +73,13 @@ function generateJSDoc(
             return null;
           })
           .filter((f): f is DocPart => f !== null) || [],
-      return: doc.tags
-        ?.map((m) => {
-          if (ts.isJSDocReturnTag(m)) {
-            return {
-              id: "",
-              comment: m.comment || "",
-              type: m.typeExpression?.getText(),
-            };
-          }
-        })
-        .filter((f): f is DocPart => f !== null)[0] || {
-        comment: "",
-        id: "",
-        type: "",
-      },
+      return: returnType,
     };
   } else {
     docData = {
       comment: "",
       args: [],
-      return: { comment: "", id: "", type: "" },
+      return: returnType,
     };
   }
   parameters.forEach((f) => {
@@ -106,9 +93,6 @@ function generateJSDoc(
       });
     }
   });
-  if (docData.return.type === "") {
-    docData.return.type = returnType.join(" || ");
-  }
   let params = docData.args
     .map((m) => ` * @apiParam {${m.type}} ${m.id} ${m.comment}`)
     .join("\n");
@@ -116,7 +100,7 @@ function generateJSDoc(
     params = "\n" + params;
   }
   const ret = docData.return;
-  const returnValue = ` * @apiReturn {${ret.type}} ${ret.comment}`;
+  const returnValue = ` * @apiReturn {${ret.type}} ${"" /* ret.comment*/}`;
   const code = `/**
  * @api {${method}} ${path}
  * ${docData.comment.replace("\n", "\n * ")}
@@ -124,6 +108,100 @@ function generateJSDoc(
 ${returnValue}
  */\n`;
   return { code, data: docData };
+}
+
+function decompileType(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  allowUnion: boolean,
+  allowPromise: boolean = false
+): FullType {
+  // console.log(checker.typeToString(type));
+  if (type.isUnion()) {
+    // Resolve Union types
+    const resolved = type.types.map((t) =>
+      decompileType(t, checker, allowUnion)
+    );
+    const results = new Set<string>();
+    resolved.forEach((r) => results.add(JSON.stringify(r)));
+    const unpacked: FullType[] = [];
+    results.forEach((r) => unpacked.push(JSON.parse(r)));
+    if (unpacked.length === 1) return unpacked[0];
+    if (!allowUnion)
+      throw new Error(
+        "Union types which cannot be coerced together are not supported"
+      );
+    return { type: "union", value: unpacked };
+  }
+  if (ts.TypeFlags.String === type.flags) {
+    return { type: "string" };
+  }
+  if (type.isStringLiteral()) {
+    return { type: "string" };
+  }
+  if (ts.TypeFlags.Number === type.flags) {
+    return { type: "number" };
+  }
+  if (type.isNumberLiteral()) {
+    return { type: "number" };
+  }
+  if (ts.TypeFlags.Void === type.flags) {
+    return { type: "void" };
+  }
+  if (ts.TypeFlags.Null === type.flags) {
+    return { type: "null" };
+  }
+  if (ts.TypeFlags.Undefined === type.flags) {
+    return { type: "null" };
+  }
+  if (ts.TypeFlags.Boolean === type.flags) {
+    return { type: "boolean" };
+  }
+  if (ts.TypeFlags.BooleanLiteral === type.flags) {
+    return { type: "boolean" };
+  }
+  if (ts.TypeFlags.Object === type.flags) {
+    console.log(type.symbol.name);
+    if (type.symbol.name === "Promise") {
+      if (!allowPromise)
+        throw new Error(
+          "Cannot have a nested Promise in an API param or return type"
+        );
+      const c = (type as ts.TypeReference).typeArguments!![0];
+      return decompileType(c, checker, allowUnion);
+    }
+    if (type.symbol.name === "Array") {
+      const c = decompileType(
+        (type as ts.TypeReference).typeArguments!![0],
+        checker,
+        allowUnion
+      );
+      return { type: "array", value: c };
+    }
+    if (type.symbol.name === "Set") {
+      const c = decompileType(
+        (type as ts.TypeReference).typeArguments!![0],
+        checker,
+        allowUnion
+      );
+      return { type: "set", value: c };
+    }
+    if (type.symbol.name === "__object" || type.symbol.name === "__type") {
+      const props = type.getProperties();
+      const result: { [prop: string]: any } = {};
+      props.forEach(
+        (p) =>
+          (result[p.name] = decompileType(
+            checker.getTypeAtLocation(p.getDeclarations()!![0]),
+            checker,
+            allowUnion
+          ))
+      );
+      return { type: "object", value: result };
+    }
+    throw new Error(`Cannot return symbol of type ${type.symbol.name}`);
+  }
+  throw new Error(`Type ${checker.typeToString(type)} is not supported!`);
 }
 
 /** convertFuncToRoute - Turn a ts.FunctionDeclaration into a string snippet
@@ -143,29 +221,39 @@ function convertFuncToRoute(
   path: string,
   checker: ts.TypeChecker
 ): { code: string; route: RouteData } {
-  const rtValues = checker
-    .getTypeAtLocation(func)
-    .getCallSignatures()[0]
-    .getReturnType();
-  const rtypes = rtValues.isUnionOrIntersection()
-    ? rtValues.types.map((t) => checker.typeToString(t))
-    : [checker.typeToString(rtValues)];
-  const hasPromise = rtypes.filter((f) => f.match(/^Promise<.*>$/)).length > 0;
+  let rtype;
+  try {
+    rtype = decompileType(
+      checker.getTypeAtLocation(func).getCallSignatures()[0].getReturnType(),
+      checker,
+      false,
+      true
+    );
+  } catch (e) {
+    throw new Error(`Issue with function ${funcAlias}:\n${e}`);
+  }
+  // console.log(rtype);
+  const hasPromise = !!checker
+    .typeToString(
+      checker.getTypeAtLocation(func).getCallSignatures()[0].getReturnType()
+    )
+    .match(/^Promise<.*>$/);
   let method: "post" | "get" = "post";
   const params = func.parameters.map((param) => {
-    const ptypeRaw = checker.getTypeAtLocation(param);
-    const types = ptypeRaw.isUnionOrIntersection()
-      ? ptypeRaw.types.map((t) => checker.typeToString(t))
-      : [checker.typeToString(ptypeRaw)];
-    types.forEach((t) => {
-      if (t.match(/^Promise<.*>$/))
-        throw new Error("Cannot accept a promise as the input to an API");
-    });
+    const types = decompileType(
+      checker.getTypeAtLocation(param),
+      checker,
+      true, // Union
+      false // Promise
+    );
     return {
       optional: !!param.questionToken || !!param.initializer,
       id: param.name.getText(),
       types,
-      inlineable: types.every((t) => t.match("number") || t.match("string")),
+      inlineable:
+        types.type === "boolean" ||
+        types.type === "string" ||
+        types.type === "number",
       inline: false,
     };
   });
@@ -176,7 +264,6 @@ function convertFuncToRoute(
   }
 
   let response = `app.${method}('${path}', (req, res) => {\n`;
-  response += `process.stdout.write(\`\${new Date().toISOString()} [${method}] \${req.path}\`);`;
   // Build local variables and check for existance
   response += params
     .map((p) => {
@@ -186,7 +273,6 @@ function convertFuncToRoute(
       if (!p.optional) {
         variable += `if(!${p.id}){
         res.status(400).send({error: "Missing parameter ${p.id}"});
-        process.stdout.write(" - 400\\n");
         return;}\n`;
       }
       return variable;
@@ -197,20 +283,18 @@ function convertFuncToRoute(
     .map((p) => p.id)
     .join(", ")});\n`;
   if (hasPromise) {
-    body += `if(isPromise(response))
+    body += `if(isPromise(response)){
        response.then(r => {
-          res.send({response:r};
-          process.stdout.write(" - 200\\n");
-         }))
-              .catch(e => {
-                    res.status(500).send({
-                      error: process.env.DEBUG == "true" ?
-                        e.stack : 'An error occurred'}));
-                    process.stdout.write(" - 500\\n"); 
-                } 
+          res.send({response:r});
+         })
+        .catch(e => {
+              res.status(500).send({
+                error: process.env.DEBUG == "true" ?
+                  e.stack : 'An error occurred'});
+          })
+        }
       else{
         res.send({response});
-        process.stdout.write(" - 200\\n");
       }`;
   } else {
     body += "res.send({response});";
@@ -221,7 +305,7 @@ function convertFuncToRoute(
     `} catch(e){ if(process.env.DEBUG == "true")
       res.status(500).send({error: e.stack});
      else res.status(500).send({error: 'An unknown error occurred'});
-    process.stdout.write(" - 500\\n"); }`;
+   }`;
   response += body;
   response += "});";
 
@@ -230,9 +314,7 @@ function convertFuncToRoute(
     path,
     method,
     func.parameters,
-    rtypes.map((t) =>
-      t.match(/^Promise<.*>$/) ? t.slice(8, t.length - 1) : t
-    ),
+    rtype,
     checker,
     (<any>func).jsDoc
   );
@@ -244,9 +326,7 @@ function convertFuncToRoute(
       doc: doc.data,
       method,
       path,
-      returnType: rtypes.map((t) =>
-        t.match(/^Promise<.*>$/) ? t.slice(8, t.length - 1) : t
-      ),
+      return: rtype,
       params: params.map((p) => ({
         id: p.id,
         inline: p.inline,
@@ -415,12 +495,14 @@ Functions must be exported in order to build an API`
     "body-parser": "latest",
     express: "~4",
     "is-promise": "^4",
+    morgan: "^1.10.0",
     ...packageJSON.dependencies,
   };
   // Add package depedencies if being compiled to TypeScript
   if (options.language == "TypeScript") {
     packageJSON.dependencies = {
       "@types/express": "~4",
+      "@types/morgan": "^1.9.0",
       ...packageJSON.dependencies,
     };
     packageJSON.devDependencies = {
@@ -439,6 +521,7 @@ Functions must be exported in order to build an API`
     response += 'import express from "express";\n';
     response += 'import isPromise from "is-promise";\n';
     response += 'import bodyParser from "body-parser"\n';
+    response += 'import morgan from "morgan";\n';
   } else {
     // Use commonjs imports for JavaScript
     response += `const __API = require("./${options.newSource.substring(
@@ -448,10 +531,12 @@ Functions must be exported in order to build an API`
     response += 'const express = require("express");\n';
     response += 'const isPromise = require("is-promise");\n';
     response += 'const bodyParser = require("body-parser");\n';
+    response += 'const morgan = require("morgan");\n';
   }
 
   response += "const app = express();\n";
-  response += "app.use(bodyParser.json());\n\n";
+  response += "app.use(bodyParser.json());\n";
+  response += 'app.use(morgan("combined"));\n\n';
   response += routes.code;
   // Add action to listen on local host
   const port = options.port || 3000;

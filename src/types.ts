@@ -23,10 +23,10 @@ export interface BuildOptions {
 export interface RouteData {
   type: "func";
   doc: DocString;
-  params: { id: string; optional: boolean; inline: boolean; type: any }[];
+  params: { id: string; optional: boolean; inline: boolean; type: FullType }[];
   method: "get" | "post";
   path: string;
-  returnType: string[];
+  return: FullType;
 }
 export interface MultiRoute {
   [propName: string]:
@@ -45,5 +45,26 @@ export interface DocPart {
 export interface DocString {
   comment: string;
   args: DocPart[];
-  return: DocPart;
+  return: FullType;
 }
+
+export interface BaseType {
+  type: "number" | "string" | "void" | "null" | "boolean";
+}
+export interface ArrayType {
+  type: "array";
+  value: FullType;
+}
+export interface SetType {
+  type: "set";
+  value: FullType;
+}
+export interface ObjectType {
+  type: "object";
+  value: { [propName: string]: FullType };
+}
+export interface UnionType {
+  type: "union";
+  value: FullType[];
+}
+export type FullType = BaseType | ArrayType | SetType | ObjectType | UnionType;
