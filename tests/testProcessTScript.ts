@@ -130,7 +130,7 @@ describe("process TypeScript", () => {
       assert.isTrue(
         result.routeData.math.type === "export" &&
           result.routeData.math.export.square.type === "func" &&
-          result.routeData.math.export.square.return.type === "number"
+          result.routeData.math.export.square.return.type === "double"
       ));
   });
   describe("Fail when returning a union", () => {

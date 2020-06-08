@@ -124,10 +124,10 @@ function decompileType(
     return { type: "string" };
   }
   if (ts.TypeFlags.Number === type.flags) {
-    return { type: "number" };
+    return { type: "double" };
   }
   if (type.isNumberLiteral()) {
-    return { type: "number" };
+    return { type: "double" };
   }
   if (ts.TypeFlags.Void === type.flags) {
     return { type: "void" };
@@ -236,7 +236,7 @@ function convertFuncToRoute(
       inlineable:
         type.type === "boolean" ||
         type.type === "string" ||
-        type.type === "number",
+        type.type === "double",
       inline: false,
     };
   });

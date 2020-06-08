@@ -1,6 +1,6 @@
 {
   "name": "@automatique/autoapi-js",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "A tool to automatically generate Javascript/Typescript API servers based on functions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

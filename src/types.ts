@@ -44,7 +44,7 @@ export interface DocString {
 }
 
 export interface BaseType {
-  type: "number" | "string" | "void" | "null" | "boolean";
+  type: "double" | "string" | "void" | "null" | "boolean";
 }
 export interface ArrayType {
   type: "array";
