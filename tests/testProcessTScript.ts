@@ -2,8 +2,7 @@
 import "mocha";
 import { assert } from "chai";
 
-import { buildProgram } from "../src/processTScript";
-import { buildTSExpress } from "../index";
+import { buildExpress } from "../index";
 import { packageJSON } from "./utils";
 import fs from "fs";
 import del from "del";
@@ -23,7 +22,9 @@ describe("process TypeScript", () => {
       JSON.stringify(packageJSON())
     );
     it("should throw an exception when nothing is exported", () =>
-      assert.throws(() => buildTSExpress(folder, "index.ts")));
+      assert.throws(() =>
+        buildExpress(folder, "index.ts", { language: "TypeScript" })
+      ));
   });
   describe("receiving a promise", () => {
     const program = `async function doSomething(foo: Promise<string>)
@@ -37,7 +38,9 @@ describe("process TypeScript", () => {
       JSON.stringify(packageJSON())
     );
     it("should throw an exception one param is a promise", () =>
-      assert.throws(() => buildTSExpress(folder, "index.ts")));
+      assert.throws(() =>
+        buildExpress(folder, "index.ts", { language: "TypeScript" })
+      ));
   });
   describe("build 1 function express server", () => {
     const program = `console.log('hello world');
@@ -50,15 +53,11 @@ describe("process TypeScript", () => {
       path.join(folder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(folder, "index.ts");
-    it("should produce parsable package.json", () => {
-      JSON.parse(result.packageJSON);
-    });
-    const packageJson = JSON.parse(result.packageJSON);
+    const result = buildExpress(folder, "index.ts", { language: "TypeScript" });
     it("should declare 'express' as a requirement", () =>
-      assert("express" in packageJson.dependencies));
+      assert("express" in result.packageJSON.dependencies));
     it("should declare 'typescript' as a devDependency", () =>
-      assert("typescript" in packageJson.devDependencies));
+      assert("typescript" in result.packageJSON.devDependencies));
     it("should have a call to the function", () =>
       assert.include(result.index, "__API.foo()"));
     it("should import express", () =>
@@ -82,7 +81,9 @@ describe("process TypeScript", () => {
       path.join(infolder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(infolder, "index.ts");
+    const result = buildExpress(infolder, "index.ts", {
+      language: "TypeScript",
+    });
     it("should have an api post request", () =>
       assert.include(result.index, "app.get('/odd', (req, res) => "));
     it("should have the a check that param x exists", () =>
@@ -115,7 +116,7 @@ describe("process TypeScript", () => {
       path.join(folder, "package.json"),
       JSON.stringify(packageJSON())
     );
-    const result = buildTSExpress(folder, "index.ts");
+    const result = buildExpress(folder, "index.ts", { language: "TypeScript" });
     it("should have an api get request", () =>
       assert.include(result.index, "app.get("));
     it("should have path /math/square", () =>
@@ -124,6 +125,29 @@ describe("process TypeScript", () => {
       assert.include(result.index, "app.get('/math/cube'"));
     it("should have deep greeting", () =>
       assert.include(result.index, "app.get('/hello/darkness/my/old/friend'"));
+    result.routeData;
+    it("should have number as return type for square", () =>
+      assert.isTrue(
+        result.routeData.math.type === "export" &&
+          result.routeData.math.export.square.type === "func" &&
+          result.routeData.math.export.square.return.type === "double"
+      ));
+  });
+  describe("Fail when returning a union", () => {
+    const program = `function lt5(x: number){ if(x<5) return x; return "Not x";}
+    export default { lt5 }`;
+    const folder = path.join(dir, "return_union");
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, "index.ts"), program);
+    fs.writeFileSync(
+      path.join(folder, "package.json"),
+      JSON.stringify(packageJSON())
+    );
+    it("should throw an exception", () =>
+      assert.throws(
+        () => buildExpress(folder, "index.ts", { language: "TypeScript" }),
+        /Union types/
+      ));
   });
   after(() => del(dir));
 });
